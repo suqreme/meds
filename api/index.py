@@ -176,62 +176,98 @@ def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
 
     # If no structured steps found, try to format the text intelligently
     if not steps and snippet:
-        formatted_instructions = format_instructions_text(snippet)
+        formatted_instructions = format_medical_text(snippet)
         steps = formatted_instructions
 
     return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:12]}
 
-def format_instructions_text(text: str) -> List[str]:
-    """Format wall of text into readable instructions"""
-    # Split by common instruction markers
-    instruction_markers = [
-        "For ", "Step ", "Method:", "Instructions:", "Preparation:", "Usage:", 
-        "Natural remedy", "Treatment:", "Recipe:", "Remedy:", "Procedure:"
+def format_medical_text(text: str) -> List[str]:
+    """Smart formatting specifically for medical/remedy text"""
+    
+    # Clean up the text first
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    # Look for specific medical content patterns
+    sections = []
+    
+    # Pattern 1: Look for "Root cause" or "Natural remedy" sections
+    root_cause_match = re.search(r'Root cause[:\s]+(.*?)(?=Natural remedy|Treatment|$)', text, re.IGNORECASE | re.DOTALL)
+    if root_cause_match:
+        root_text = root_cause_match.group(1).strip()
+        if len(root_text) > 30:
+            sections.append(f"**Root Cause:** {root_text[:300]}{'...' if len(root_text) > 300 else ''}")
+    
+    # Pattern 2: Look for "Natural remedy" or "Treatment" sections  
+    remedy_match = re.search(r'(?:Natural remedy|Treatment)[:\s]+(.*?)(?=Root cause|In addition|Additionally|$)', text, re.IGNORECASE | re.DOTALL)
+    if remedy_match:
+        remedy_text = remedy_match.group(1).strip()
+        if len(remedy_text) > 30:
+            sections.append(f"**Treatment:** {remedy_text[:350]}{'...' if len(remedy_text) > 350 else ''}")
+    
+    # Pattern 3: Look for dietary recommendations
+    diet_match = re.search(r'(?:diet|dietary|eating)[^.]*?(?:fruit|vegetable|herb|juice)[^.]*\.(?:[^.]*\.)*', text, re.IGNORECASE)
+    if diet_match:
+        diet_text = diet_match.group().strip()
+        if len(diet_text) > 30:
+            sections.append(f"**Dietary Approach:** {diet_text}")
+    
+    # Pattern 4: Look for herbal recommendations
+    herb_patterns = [
+        r'(?:herbs?|herbal)[^.]*?(?:including|such as)[^.]*?\.(?:[^.]*\.)*',
+        r'(?:red clover|burdock|echinacea|dandelion)[^.]*?\.(?:[^.]*\.)*'
     ]
     
-    # Split text into sentences and paragraphs
-    sentences = re.split(r'[.!?]\s+', text)
-    formatted_steps = []
+    for pattern in herb_patterns:
+        herb_match = re.search(pattern, text, re.IGNORECASE)
+        if herb_match:
+            herb_text = herb_match.group().strip()
+            if len(herb_text) > 30 and not any(herb_text[:50] in section for section in sections):
+                sections.append(f"**Herbal Support:** {herb_text[:300]}{'...' if len(herb_text) > 300 else ''}")
+                break
     
-    current_step = ""
-    for sentence in sentences:
+    # Pattern 5: Look for preparation instructions
+    prep_keywords = ["tea", "boiling", "steeping", "preparation", "mix", "apply", "massage", "bath"]
+    prep_sentences = []
+    
+    for sentence in text.split('.'):
         sentence = sentence.strip()
-        if not sentence:
-            continue
-            
-        # Check if this starts a new instruction
-        is_new_instruction = any(sentence.startswith(marker) for marker in instruction_markers)
+        if any(keyword in sentence.lower() for keyword in prep_keywords) and len(sentence) > 20:
+            prep_sentences.append(sentence)
+            if len(prep_sentences) >= 2:
+                break
+    
+    if prep_sentences:
+        prep_text = '. '.join(prep_sentences) + '.'
+        sections.append(f"**Preparation:** {prep_text}")
+    
+    # If we didn't find structured content, break into logical paragraphs
+    if not sections:
+        # Split by major sentence breaks and group logically
+        sentences = [s.strip() + '.' for s in text.split('.') if len(s.strip()) > 20]
         
-        if is_new_instruction and current_step:
-            # Save the previous step
-            formatted_steps.append(current_step.strip())
-            current_step = sentence
-        elif current_step:
-            current_step += ". " + sentence
-        else:
-            current_step = sentence
-    
-    # Add the last step
-    if current_step:
-        formatted_steps.append(current_step.strip())
-    
-    # Clean up and format the steps
-    clean_steps = []
-    for step in formatted_steps:
-        # Remove excessive whitespace and format
-        step = re.sub(r'\s+', ' ', step).strip()
+        current_para = ""
+        for sentence in sentences[:10]:  # Limit to first 10 sentences
+            if len(current_para + sentence) > 250:
+                if current_para:
+                    sections.append(current_para.strip())
+                current_para = sentence
+            else:
+                current_para += " " + sentence if current_para else sentence
         
-        # Skip very short or empty steps
-        if len(step) < 20:
-            continue
-            
-        # Truncate very long steps
-        if len(step) > 300:
-            step = step[:300] + "..."
-            
-        clean_steps.append(step)
+        if current_para:
+            sections.append(current_para.strip())
     
-    return clean_steps[:8]  # Limit to 8 formatted steps
+    # Clean up sections and ensure they're not too long
+    final_sections = []
+    for section in sections[:6]:  # Limit to 6 sections
+        section = section.strip()
+        if len(section) > 30:
+            # Remove markdown formatting for display
+            section = re.sub(r'\*\*(.*?)\*\*', r'\1:', section)
+            final_sections.append(section)
+    
+    return final_sections if final_sections else ["Refer to the source material for detailed preparation methods"]
+
 
 def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
     """Smart deduplication and consolidation of ingredients"""
