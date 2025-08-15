@@ -174,7 +174,64 @@ def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
         if BULLET_RE.search(ln) or mode == "step":
             steps.append(re.sub(BULLET_RE, "", ln))
 
-    return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:10]}
+    # If no structured steps found, try to format the text intelligently
+    if not steps and snippet:
+        formatted_instructions = format_instructions_text(snippet)
+        steps = formatted_instructions
+
+    return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:12]}
+
+def format_instructions_text(text: str) -> List[str]:
+    """Format wall of text into readable instructions"""
+    # Split by common instruction markers
+    instruction_markers = [
+        "For ", "Step ", "Method:", "Instructions:", "Preparation:", "Usage:", 
+        "Natural remedy", "Treatment:", "Recipe:", "Remedy:", "Procedure:"
+    ]
+    
+    # Split text into sentences and paragraphs
+    sentences = re.split(r'[.!?]\s+', text)
+    formatted_steps = []
+    
+    current_step = ""
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # Check if this starts a new instruction
+        is_new_instruction = any(sentence.startswith(marker) for marker in instruction_markers)
+        
+        if is_new_instruction and current_step:
+            # Save the previous step
+            formatted_steps.append(current_step.strip())
+            current_step = sentence
+        elif current_step:
+            current_step += ". " + sentence
+        else:
+            current_step = sentence
+    
+    # Add the last step
+    if current_step:
+        formatted_steps.append(current_step.strip())
+    
+    # Clean up and format the steps
+    clean_steps = []
+    for step in formatted_steps:
+        # Remove excessive whitespace and format
+        step = re.sub(r'\s+', ' ', step).strip()
+        
+        # Skip very short or empty steps
+        if len(step) < 20:
+            continue
+            
+        # Truncate very long steps
+        if len(step) > 300:
+            step = step[:300] + "..."
+            
+        clean_steps.append(step)
+    
+    return clean_steps[:8]  # Limit to 8 formatted steps
 
 def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
     """Smart deduplication and consolidation of ingredients"""
