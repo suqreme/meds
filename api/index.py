@@ -25,22 +25,36 @@ def load_epub_books():
     if books_data:  # Already loaded
         return
     
+    # Debug: Check what files exist
+    current_files = []
+    try:
+        current_files = os.listdir('.')
+        print(f"Files in current directory: {current_files}")
+    except Exception as e:
+        print(f"Error listing files: {e}")
+    
     try:
         # Try to import EPUB processing libraries
         from ebooklib import epub
         from bs4 import BeautifulSoup
+        print("EPUB libraries imported successfully")
         
         epub_files = []
         # Check for EPUB files in the current directory
         for filename in ['1.epub', '2.epub', 'test-book.epub']:
             if os.path.exists(filename):
                 epub_files.append(filename)
+                print(f"Found EPUB file: {filename}")
+        
+        print(f"Total EPUB files found: {len(epub_files)}")
         
         chunks = []
         for epub_file in epub_files:
             try:
+                print(f"Processing {epub_file}...")
                 book = epub.read_epub(epub_file)
                 items = list(book.get_items())
+                print(f"Found {len(items)} items in {epub_file}")
 
                 for item in items:
                     if item.get_type() == epub.ITEM_DOCUMENT:
@@ -62,14 +76,22 @@ def load_epub_books():
                                         "text": chunk
                                     })
                                     
+                print(f"Extracted {len([c for c in chunks if c['book'] == epub_file])} chunks from {epub_file}")
+                                    
             except Exception as e:
                 print(f"Error processing {epub_file}: {e}")
                 continue
         
         books_data = chunks
+        print(f"Total chunks loaded: {len(books_data)}")
         
-    except ImportError:
-        # Fallback to comprehensive sample data if libraries not available
+    except ImportError as e:
+        print(f"EPUB libraries not available: {e}")
+        chunks = []  # Reset chunks for fallback
+        
+    # Always ensure we have some data - use sample data if no EPUB chunks were loaded
+    if not chunks:
+        print("Loading fallback sample data...")
         books_data = [
             {"book": "Sample Book 1", "chapter": "Digestive Issues", "pos": 0, "text": "Ginger remedy for nausea and morning sickness. Ingredients: 1 tsp fresh ginger root, 1 cup hot water, honey to taste. Instructions: Peel and slice fresh ginger. Steep in hot water for 10 minutes. Add honey and drink warm. Effective for motion sickness and pregnancy nausea."},
             
@@ -91,8 +113,10 @@ def load_epub_books():
             
             {"book": "Sample Book 2", "chapter": "Detox", "pos": 0, "text": "Dandelion root tea for liver detox. Ingredients: 1 tsp dried dandelion root, 1 cup boiling water, lemon slice. Instructions: Pour boiling water over dandelion root. Steep for 10 minutes. Strain and add lemon slice. Drink twice daily to support liver function and detoxification."}
         ]
+    else:
+        books_data = chunks
     
-    print(f"Loaded {len(books_data)} text chunks from EPUB books")
+    print(f"Final: Loaded {len(books_data)} text chunks from books")
 
 def chunk_words(text: str, max_words=900, overlap=150) -> List[str]:
     """Split text into overlapping chunks"""
@@ -372,10 +396,23 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             
+            # Get current directory files for debugging
+            try:
+                current_files = os.listdir('.')
+                epub_files = [f for f in current_files if f.endswith('.epub')]
+            except:
+                current_files = []
+                epub_files = []
+            
             response = {
                 "status": "healthy", 
                 "chunks_loaded": len(books_data),
-                "books": len(set(chunk.get("book", "unknown") for chunk in books_data))
+                "books": len(set(chunk.get("book", "unknown") for chunk in books_data)),
+                "debug": {
+                    "total_files": len(current_files),
+                    "epub_files": epub_files,
+                    "sample_files": current_files[:10]  # First 10 files
+                }
             }
             self.wfile.write(json.dumps(response).encode())
             
