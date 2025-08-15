@@ -60,7 +60,7 @@ def load_epub_books():
 
                 document_count = 0
                 for item in items:
-                    if item.get_type() == epub.ITEM_DOCUMENT:
+                    if item.get_type() == ebooklib.ITEM_DOCUMENT:
                         document_count += 1
                         try:
                             # Extract text from HTML content
@@ -428,7 +428,7 @@ class handler(BaseHTTPRequestHandler):
                         
                         doc_count = 0
                         for item in items:
-                            if item.get_type() == epub.ITEM_DOCUMENT:
+                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
                                 doc_count += 1
                                 if doc_count <= 3:  # Only process first 3 documents
                                     content = item.get_content()
