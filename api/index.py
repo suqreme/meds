@@ -445,56 +445,104 @@ class handler(BaseHTTPRequestHandler):
             query = search_params.get('q', '')
             max_results = search_params.get('k', 5)
             
+            print(f"Search request: query='{query}', max_results={max_results}")
+            print(f"Books data length: {len(books_data)}")
+            
             if not books_data:
                 self.send_error_response("No remedy data loaded.")
                 return
             
             # Find relevant chunks
             matching_chunks = simple_text_search(query, max_results * 2)
+            print(f"Found {len(matching_chunks)} matching chunks")
             
-            # Extract remedies from matching chunks
+            # Extract remedies from matching chunks - be more lenient
             remedies = []
-            for chunk in matching_chunks:
-                # Look for chunks that seem to contain remedy info
+            for i, chunk in enumerate(matching_chunks):
+                print(f"Processing chunk {i}: {chunk['text'][:100]}...")
+                
+                # First, try strict search for proper remedies
                 text_lower = chunk["text"].lower()
-                if (any(k in text_lower for k in ["ingredient", "ingredients"]) and 
-                    any(k in text_lower for k in ["remedy", "treatment", "recipe", "for ", "cure", "heal"])):
+                is_remedy_chunk = (any(k in text_lower for k in ["ingredient", "ingredients"]) and 
+                                 any(k in text_lower for k in ["remedy", "treatment", "recipe", "for ", "cure", "heal"]))
+                
+                extracted = extract_ingredients_and_steps(chunk["text"])
+                
+                # If we found a proper remedy, use it
+                if is_remedy_chunk and extracted["ingredients"]:
+                    # Extract title from first sentence
+                    first_sentence = chunk["text"].split(".")[0].strip()
+                    if len(first_sentence) > 100:
+                        first_sentence = first_sentence[:100] + "..."
                     
-                    extracted = extract_ingredients_and_steps(chunk["text"])
+                    title = first_sentence if first_sentence else f"Remedy for {query}"
+                    
+                    remedy_id = hashlib.md5(
+                        (chunk["book"] + chunk["chapter"] + str(chunk["pos"])).encode()
+                    ).hexdigest()[:12]
+                    
+                    # Add affiliate links to ingredients
+                    ingredients_with_links = []
+                    for ingredient in extracted["ingredients"]:
+                        ing_copy = ingredient.copy()
+                        ing_copy["link"] = affiliate_search_url(ingredient["name"])
+                        ingredients_with_links.append(ing_copy)
+                    
+                    remedies.append({
+                        "id": remedy_id,
+                        "title": title,
+                        "summary": None,
+                        "ingredients": ingredients_with_links,
+                        "instructions": extracted["instructions"],
+                        "source": {
+                            "book": chunk.get("book", "Traditional Text"),
+                            "chapter": chunk.get("chapter", "Unknown Chapter"), 
+                            "pos": chunk.get("pos", 0)
+                        }
+                    })
+                    print(f"Added remedy: {title}")
+                    
+                # If no strict remedies found, create a simple remedy from any matching chunk
+                elif len(remedies) == 0 and i < 3:  # Only for first few chunks if no proper remedies
+                    # Create a basic remedy from the chunk
+                    title = f"Traditional approach for {query}"
+                    remedy_id = hashlib.md5((chunk["text"][:50]).encode()).hexdigest()[:12]
+                    
+                    # Extract any ingredients we can find
+                    basic_ingredients = []
                     if extracted["ingredients"]:
-                        # Extract title from first sentence
-                        first_sentence = chunk["text"].split(".")[0].strip()
-                        if len(first_sentence) > 100:
-                            first_sentence = first_sentence[:100] + "..."
+                        basic_ingredients = extracted["ingredients"]
+                    else:
+                        # Try to find ingredient-like words
+                        words = chunk["text"].split()
+                        for word in words:
+                            if any(herb in word.lower() for herb in ["ginger", "honey", "lemon", "water", "oil", "tea", "garlic", "turmeric"]):
+                                basic_ingredients.append({
+                                    "name": word,
+                                    "amount": None,
+                                    "unit": None,
+                                    "raw": word,
+                                    "link": affiliate_search_url(word)
+                                })
+                    
+                    remedies.append({
+                        "id": remedy_id,
+                        "title": title,
+                        "summary": chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"],
+                        "ingredients": basic_ingredients,
+                        "instructions": extracted["instructions"] or ["Refer to traditional preparation methods"],
+                        "source": {
+                            "book": chunk.get("book", "Traditional Text"),
+                            "chapter": chunk.get("chapter", "General"), 
+                            "pos": chunk.get("pos", 0)
+                        }
+                    })
+                    print(f"Added basic remedy: {title}")
                         
-                        title = first_sentence if first_sentence else f"Remedy for {query}"
-                        
-                        remedy_id = hashlib.md5(
-                            (chunk["book"] + chunk["chapter"] + str(chunk["pos"])).encode()
-                        ).hexdigest()[:12]
-                        
-                        # Add affiliate links to ingredients
-                        ingredients_with_links = []
-                        for ingredient in extracted["ingredients"]:
-                            ing_copy = ingredient.copy()
-                            ing_copy["link"] = affiliate_search_url(ingredient["name"])
-                            ingredients_with_links.append(ing_copy)
-                        
-                        remedies.append({
-                            "id": remedy_id,
-                            "title": title,
-                            "summary": None,
-                            "ingredients": ingredients_with_links,
-                            "instructions": extracted["instructions"],
-                            "source": {
-                                "book": chunk.get("book", "Traditional Text"),
-                                "chapter": chunk.get("chapter", "Unknown Chapter"), 
-                                "pos": chunk.get("pos", 0)
-                            }
-                        })
-                        
-                        if len(remedies) >= max_results:
-                            break
+                if len(remedies) >= max_results:
+                    break
+            
+            print(f"Total remedies found: {len(remedies)}")
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
