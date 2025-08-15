@@ -3,59 +3,78 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Remedy Search - Traditional & Herbal Remedies</title>
+    <title>Remedy Search - Working!</title>
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f8f9fa; }
-        .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .box { width: min(800px, 92vw); text-align: center; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #2d3748; margin-bottom: 10px; }
-        .subtitle { color: #718096; margin-bottom: 30px; }
-        .status { margin: 20px 0; padding: 20px; border-radius: 8px; background: #e6fffa; color: #2c7a7b; border: 1px solid #81e6d9; }
-        .btn { padding: 12px 24px; border-radius: 8px; border: none; background: #4299e1; color: white; cursor: pointer; font-size: 16px; margin: 10px; }
-        .btn:hover { background: #3182ce; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            margin: 0; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .wrap { 
+            min-height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px; 
+        }
+        .box { 
+            width: min(600px, 90vw); 
+            text-align: center; 
+            background: rgba(255,255,255,0.95); 
+            color: #2d3748;
+            padding: 40px; 
+            border-radius: 20px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            font-size: 3em; 
+            margin-bottom: 20px; 
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .status { 
+            margin: 30px 0; 
+            padding: 20px; 
+            border-radius: 10px; 
+            background: #d4edda; 
+            color: #155724; 
+            border: 2px solid #c3e6cb;
+            font-size: 1.2em;
+        }
+        .time {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="wrap">
         <div class="box">
-            <h1>🌿 Remedy Search</h1>
-            <p class="subtitle">Traditional & Herbal Remedies from Ancient Wisdom</p>
+            <h1>🌿 SUCCESS! 🌿</h1>
             
             <div class="status">
-                <strong>✅ App is working!</strong><br>
-                The deployment was successful. Testing the API connection...
+                <strong>🎉 The deployment is finally working!</strong><br><br>
+                This is a static HTML page being served directly by Vercel.<br>
+                No more redirects or "Not Found" errors!
             </div>
             
-            <button class="btn" onclick="testAPI()">Test API Connection</button>
+            <div class="time">
+                Page loaded at: <span id="time"></span>
+            </div>
             
-            <div id="api-status"></div>
-            
-            <div style="margin-top: 30px; font-size: 14px; color: #718096;">
-                <strong>Features coming soon:</strong><br>
-                • Upload EPUB files with traditional remedy books<br>
-                • Search for remedies by symptoms<br>
-                • Extract structured ingredients and instructions<br>
-                • Amazon affiliate links for ingredients
+            <div style="margin-top: 30px; font-size: 14px; color: #666;">
+                <strong>Next steps:</strong><br>
+                Now that we have a working deployment, we can add back the Python functionality step by step.
             </div>
         </div>
     </div>
 
     <script>
-        async function testAPI() {
-            const statusDiv = document.getElementById('api-status');
-            statusDiv.innerHTML = '<div style="margin: 10px; color: #4299e1;">Testing API...</div>';
-            
-            try {
-                const response = await fetch('/api/health');
-                const data = await response.json();
-                statusDiv.innerHTML = `<div style="margin: 10px; padding: 10px; background: #c6f6d5; color: #2f855a; border-radius: 6px;">✅ API working: ${data.message}</div>`;
-            } catch (error) {
-                statusDiv.innerHTML = `<div style="margin: 10px; padding: 10px; background: #fed7d7; color: #c53030; border-radius: 6px;">❌ API error: ${error.message}</div>`;
-            }
-        }
-        
-        // Test API on page load
-        window.onload = testAPI;
+        document.getElementById('time').textContent = new Date().toLocaleString();
     </script>
 </body>
 </html>
