@@ -3,15 +3,11 @@ import json
 import hashlib
 import re
 import urllib.parse
-import tempfile
-import shutil
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from http.server import BaseHTTPRequestHandler
-import cgi
 
-# Global storage for EPUB data
+# Global storage for pre-loaded EPUB data
 books_data = []  # Store all text chunks with metadata
-remedies_cache = []  # Store extracted remedies
 
 # Configuration
 AFFILIATE_TAG = os.environ.get("AMZ_TAG", "YOURTAG-20")
@@ -22,26 +18,81 @@ UNIT_RE = r"(?:tsp|tbsp|teaspoon|tablespoon|cup|cups|ml|l|g|kg|ounce|oz|inches|s
 BULLET_RE = re.compile(r"^\s*(?:[-•*]|\d+\.)\s+")
 ING_LINE = re.compile(rf"^\s*(?:{AMOUNT_RE}\s*(?:{UNIT_RE})?\s+)?([A-Za-z][\w\s\-']+)", re.IGNORECASE)
 
-def parse_post_data(rfile, headers):
-    """Parse multipart form data from POST request"""
+def load_epub_books():
+    """Load and process the pre-existing EPUB books"""
+    global books_data
+    
+    if books_data:  # Already loaded
+        return
+    
     try:
-        form = cgi.FieldStorage(
-            fp=rfile,
-            headers=headers,
-            environ={'REQUEST_METHOD': 'POST'}
-        )
-        return form
-    except:
-        return None
+        # Try to import EPUB processing libraries
+        from ebooklib import epub
+        from bs4 import BeautifulSoup
+        
+        epub_files = []
+        # Check for EPUB files in the current directory
+        for filename in ['1.epub', '2.epub', 'test-book.epub']:
+            if os.path.exists(filename):
+                epub_files.append(filename)
+        
+        chunks = []
+        for epub_file in epub_files:
+            try:
+                book = epub.read_epub(epub_file)
+                items = list(book.get_items())
 
-def clean_html_basic(html_content: str) -> str:
-    """Basic HTML tag removal"""
-    # Remove HTML tags
-    import re
-    clean = re.compile('<.*?>')
-    text = re.sub(clean, ' ', html_content)
-    # Clean up whitespace
-    return " ".join(text.split())
+                for item in items:
+                    if item.get_type() == epub.ITEM_DOCUMENT:
+                        # Extract text from HTML content
+                        content = item.get_content()
+                        if content:
+                            soup = BeautifulSoup(content, "html.parser")
+                            text = soup.get_text(" ", strip=True)
+                            text = " ".join(text.split())  # Clean whitespace
+                            
+                            if len(text) > 100:  # Only process substantial text
+                                # Split into chunks
+                                text_chunks = chunk_words(text, 900, 150)
+                                for pos, chunk in enumerate(text_chunks):
+                                    chunks.append({
+                                        "book": epub_file,
+                                        "chapter": getattr(item, "file_name", item.get_name()),
+                                        "pos": pos,
+                                        "text": chunk
+                                    })
+                                    
+            except Exception as e:
+                print(f"Error processing {epub_file}: {e}")
+                continue
+        
+        books_data = chunks
+        
+    except ImportError:
+        # Fallback to comprehensive sample data if libraries not available
+        books_data = [
+            {"book": "Sample Book 1", "chapter": "Digestive Issues", "pos": 0, "text": "Ginger remedy for nausea and morning sickness. Ingredients: 1 tsp fresh ginger root, 1 cup hot water, honey to taste. Instructions: Peel and slice fresh ginger. Steep in hot water for 10 minutes. Add honey and drink warm. Effective for motion sickness and pregnancy nausea."},
+            
+            {"book": "Sample Book 1", "chapter": "Respiratory Health", "pos": 0, "text": "Honey and lemon for sore throat and cough. Ingredients: 2 tbsp raw honey, 1 fresh lemon juiced, 1 cup warm water, pinch of salt. Instructions: Mix honey and lemon juice in warm water. Add salt and stir. Sip slowly throughout the day. Soothes throat irritation."},
+            
+            {"book": "Sample Book 1", "chapter": "Pain Management", "pos": 0, "text": "Turmeric paste for joint pain and inflammation. Ingredients: 2 tsp turmeric powder, coconut oil to make paste, black pepper pinch. Instructions: Mix turmeric with enough coconut oil to form thick paste. Add black pepper. Apply to affected area and cover with cloth. Leave for 30 minutes."},
+            
+            {"book": "Sample Book 2", "chapter": "Sleep Disorders", "pos": 0, "text": "Chamomile tea for insomnia and anxiety. Ingredients: 1 tbsp dried chamomile flowers, 1 cup boiling water, honey optional. Instructions: Pour boiling water over chamomile flowers. Steep covered for 15 minutes. Strain and add honey if desired. Drink 30 minutes before bedtime."},
+            
+            {"book": "Sample Book 2", "chapter": "Digestive Health", "pos": 0, "text": "Apple cider vinegar for heartburn and acid reflux. Ingredients: 1 tbsp raw apple cider vinegar with mother, 1 cup warm water, honey to taste. Instructions: Mix apple cider vinegar in warm water. Add honey to improve taste. Drink 30 minutes before meals to prevent heartburn."},
+            
+            {"book": "Sample Book 2", "chapter": "Skin Conditions", "pos": 0, "text": "Aloe vera gel for burns and skin irritation. Ingredients: Fresh aloe vera leaf, vitamin E oil optional. Instructions: Cut aloe leaf and extract clear gel. Apply directly to affected skin. For enhanced healing, mix with a few drops of vitamin E oil. Reapply 2-3 times daily."},
+            
+            {"book": "Sample Book 1", "chapter": "Headaches", "pos": 0, "text": "Peppermint oil for headache relief. Ingredients: 2-3 drops pure peppermint essential oil, 1 tsp carrier oil like coconut oil. Instructions: Dilute peppermint oil with carrier oil. Massage gently onto temples and forehead. Avoid eye area. Also inhale directly for sinus headaches."},
+            
+            {"book": "Sample Book 2", "chapter": "Cold and Flu", "pos": 0, "text": "Elderberry syrup for immune support. Ingredients: 1 cup dried elderberries, 3 cups water, 1 cup raw honey, 1 tsp ginger powder, cinnamon stick. Instructions: Simmer elderberries in water for 15 minutes. Strain and add honey while warm. Add spices. Take 1 tbsp daily during cold season."},
+            
+            {"book": "Sample Book 1", "chapter": "Circulation", "pos": 0, "text": "Cayenne pepper for poor circulation. Ingredients: 1/4 tsp cayenne pepper powder, 1 cup warm water, lemon juice optional. Instructions: Mix cayenne pepper in warm water. Add lemon juice to taste. Drink slowly. Start with smaller amount and increase gradually. Improves blood flow."},
+            
+            {"book": "Sample Book 2", "chapter": "Detox", "pos": 0, "text": "Dandelion root tea for liver detox. Ingredients: 1 tsp dried dandelion root, 1 cup boiling water, lemon slice. Instructions: Pour boiling water over dandelion root. Steep for 10 minutes. Strain and add lemon slice. Drink twice daily to support liver function and detoxification."}
+        ]
+    
+    print(f"Loaded {len(books_data)} text chunks from EPUB books")
 
 def chunk_words(text: str, max_words=900, overlap=150) -> List[str]:
     """Split text into overlapping chunks"""
@@ -136,6 +187,9 @@ def affiliate_search_url(query: str, tag: str = AFFILIATE_TAG) -> str:
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # Ensure books are loaded
+        load_epub_books()
+        
         if self.path == '/':
             # Serve the main HTML page
             self.send_response(200)
@@ -148,101 +202,103 @@ class handler(BaseHTTPRequestHandler):
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Remedy Search - Traditional & Herbal Remedies</title>
+    <title>Traditional Remedy Search - Natural Healing Database</title>
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f8f9fa; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #333; }
         .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .box { width: min(800px, 92vw); text-align: center; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #2d3748; margin-bottom: 10px; }
-        .subtitle { color: #718096; margin-bottom: 30px; }
-        input[type="text"] { width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 16px; margin-bottom: 15px; box-sizing: border-box; }
-        input[type="file"] { margin-bottom: 10px; }
-        .btn { padding: 12px 24px; border-radius: 8px; border: none; background: #4299e1; color: white; cursor: pointer; font-size: 16px; margin: 5px; }
-        .btn:hover { background: #3182ce; }
-        .btn-secondary { background: #718096; }
-        .btn-secondary:hover { background: #4a5568; }
-        .card { margin-top: 20px; text-align: left; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
-        .card h3 { color: #2d3748; margin-top: 0; }
-        .ingredients li { margin: 8px 0; padding: 5px 0; }
-        .ing-link { display: inline-block; margin-left: 10px; padding: 4px 12px; background: #4299e1; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; }
-        .ing-link:hover { background: #3182ce; }
-        .instructions { margin-top: 15px; }
-        .instructions ol { padding-left: 20px; }
-        .instructions li { margin: 5px 0; line-height: 1.5; }
-        .source { font-size: 12px; color: #718096; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; }
-        .disclosure { font-size: 12px; color: #718096; margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 6px; }
-        .status { margin: 10px 0; padding: 10px; border-radius: 6px; }
-        .status.success { background: #c6f6d5; color: #2f855a; }
-        .status.error { background: #fed7d7; color: #c53030; }
-        .loading { color: #4299e1; }
-        .empty-state { text-align: center; color: #718096; margin: 40px 0; }
+        .box { width: min(900px, 95vw); text-align: center; background: rgba(255,255,255,0.95); padding: 40px; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.15); }
+        h1 { color: #2d3748; margin-bottom: 15px; font-size: 2.5em; background: linear-gradient(45deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .subtitle { color: #718096; margin-bottom: 30px; font-size: 1.2em; }
+        .stats { background: #f0f7ff; padding: 15px; border-radius: 10px; margin-bottom: 30px; color: #2c5282; }
+        input[type="text"] { width: 100%; padding: 16px 20px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 18px; margin-bottom: 20px; box-sizing: border-box; transition: border-color 0.3s; }
+        input[type="text"]:focus { border-color: #667eea; outline: none; }
+        .btn { padding: 16px 32px; border-radius: 10px; border: none; background: linear-gradient(45deg, #667eea, #764ba2); color: white; cursor: pointer; font-size: 18px; font-weight: 600; transition: transform 0.2s; }
+        .btn:hover { transform: translateY(-2px); }
+        .card { margin-top: 25px; text-align: left; padding: 25px; border: 1px solid #e2e8f0; border-radius: 15px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .card h3 { color: #2d3748; margin-top: 0; font-size: 1.3em; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        .ingredients li { margin: 10px 0; padding: 8px 0; }
+        .ing-link { display: inline-block; margin-left: 15px; padding: 6px 14px; background: linear-gradient(45deg, #667eea, #764ba2); color: white; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 500; }
+        .ing-link:hover { opacity: 0.9; }
+        .instructions { margin-top: 20px; }
+        .instructions ol { padding-left: 25px; }
+        .instructions li { margin: 8px 0; line-height: 1.6; }
+        .source { font-size: 13px; color: #718096; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e2e8f0; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .disclosure { font-size: 13px; color: #718096; margin-top: 30px; padding: 20px; background: #fff3cd; border-radius: 10px; border-left: 4px solid #ffc107; }
+        .status { margin: 15px 0; padding: 15px; border-radius: 10px; }
+        .status.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .status.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .loading { color: #667eea; font-size: 18px; }
+        .empty-state { text-align: center; color: #718096; margin: 50px 0; padding: 40px; background: #f8f9fa; border-radius: 15px; }
+        .sample-searches { margin: 20px 0; }
+        .sample-tag { display: inline-block; margin: 5px; padding: 8px 12px; background: #e2e8f0; color: #4a5568; border-radius: 20px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .sample-tag:hover { background: #667eea; color: white; }
     </style>
 </head>
 <body>
     <div class="wrap">
         <div class="box">
-            <h1>🌿 Remedy Search</h1>
-            <p class="subtitle">Traditional & Herbal Remedies from Ancient Wisdom</p>
+            <h1>🌿 Traditional Remedy Search</h1>
+            <p class="subtitle">Discover Natural Healing Wisdom from Ancient Texts</p>
             
-            <div id="upload-section">
-                <form id="upload-form" enctype="multipart/form-data">
-                    <input type="file" name="file" accept=".epub" id="file-input">
-                    <br>
-                    <button class="btn btn-secondary" type="submit">📚 Upload & Index EPUB</button>
-                </form>
-                <div id="upload-status"></div>
+            <div class="stats" id="stats">
+                📚 Loading remedy database...
             </div>
             
-            <div style="margin: 30px 0; border-top: 1px solid #e2e8f0;"></div>
-            
             <div id="search-section">
-                <input type="text" id="query" placeholder="Type a symptom (e.g., headache, cough, indigestion, sore throat)">
-                <button class="btn" id="search-btn">🔍 Search Remedies</button>
+                <input type="text" id="query" placeholder="Enter your symptoms or condition (e.g., headache, nausea, sore throat, insomnia)">
+                <button class="btn" id="search-btn">🔍 Find Natural Remedies</button>
+                
+                <div class="sample-searches">
+                    <strong>Try searching for:</strong><br>
+                    <span class="sample-tag" onclick="searchFor('headache')">Headache</span>
+                    <span class="sample-tag" onclick="searchFor('nausea')">Nausea</span>
+                    <span class="sample-tag" onclick="searchFor('sore throat')">Sore Throat</span>
+                    <span class="sample-tag" onclick="searchFor('insomnia')">Insomnia</span>
+                    <span class="sample-tag" onclick="searchFor('inflammation')">Inflammation</span>
+                    <span class="sample-tag" onclick="searchFor('cold')">Cold & Flu</span>
+                </div>
+                
                 <div id="results"></div>
             </div>
             
             <div class="disclosure">
-                <strong>Important Disclaimers:</strong><br>
-                • This information is for educational purposes only and is not medical advice<br>
-                • Always consult healthcare professionals before trying new remedies<br>
-                • As an Amazon Associate, we may earn from qualifying purchases
+                <strong>⚠️ Important Medical Disclaimer:</strong><br>
+                • This information is for educational purposes only and is not intended as medical advice<br>
+                • Always consult qualified healthcare professionals before using any natural remedies<br>
+                • Do not replace conventional medical treatment with these suggestions<br>
+                • As an Amazon Associate, we may earn from qualifying purchases through our links
             </div>
         </div>
     </div>
 
     <script>
-        const uploadForm = document.getElementById('upload-form');
-        const uploadStatus = document.getElementById('upload-status');
         const query = document.getElementById('query');
         const searchBtn = document.getElementById('search-btn');
         const results = document.getElementById('results');
+        const stats = document.getElementById('stats');
 
-        uploadForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(uploadForm);
-            uploadStatus.innerHTML = '<div class="status loading">📚 Processing EPUB file...</div>';
-            
+        // Load stats on page load
+        loadStats();
+
+        async function loadStats() {
             try {
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+                const response = await fetch('/api/health');
                 const data = await response.json();
-                
-                if (data.ok) {
-                    uploadStatus.innerHTML = `<div class="status success">✅ Successfully indexed ${data.chunks} chunks!</div>`;
-                } else {
-                    uploadStatus.innerHTML = `<div class="status error">❌ Error: ${data.error}</div>`;
-                }
+                stats.innerHTML = `📚 Database contains <strong>${data.chunks_loaded}</strong> remedy sections ready for search`;
             } catch (error) {
-                uploadStatus.innerHTML = `<div class="status error">❌ Upload failed: ${error.message}</div>`;
+                stats.innerHTML = '📚 Remedy database loaded and ready';
             }
-        });
+        }
+
+        function searchFor(term) {
+            query.value = term;
+            performSearch();
+        }
 
         async function performSearch() {
             if (!query.value.trim()) return;
             
-            results.innerHTML = '<div class="loading">🔍 Searching for remedies...</div>';
+            results.innerHTML = '<div class="loading">🔍 Searching through traditional remedy texts...</div>';
             
             try {
                 const response = await fetch('/api/search', {
@@ -258,22 +314,22 @@ class handler(BaseHTTPRequestHandler):
                 }
                 
                 if (data.remedies.length === 0) {
-                    results.innerHTML = '<div class="empty-state">No remedies found. Try uploading an EPUB file first or searching for different symptoms.</div>';
+                    results.innerHTML = '<div class="empty-state">No remedies found for this search. Try different terms like "pain", "cough", or "digestion".</div>';
                     return;
                 }
                 
                 results.innerHTML = data.remedies.map(remedy => `
                     <div class="card">
                         <h3>${remedy.title}</h3>
-                        ${remedy.summary ? `<p>${remedy.summary}</p>` : ''}
+                        ${remedy.summary ? `<p><em>${remedy.summary}</em></p>` : ''}
                         
                         ${remedy.ingredients.length > 0 ? `
-                            <h4>🧪 Ingredients</h4>
+                            <h4>🧪 Natural Ingredients</h4>
                             <ul class="ingredients">
                                 ${remedy.ingredients.map(ing => `
                                     <li>
-                                        ${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}
-                                        <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ing-link">🛒 Buy</a>
+                                        <strong>${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}</strong>
+                                        <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ing-link">🛒 Find on Amazon</a>
                                     </li>
                                 `).join('')}
                             </ul>
@@ -281,7 +337,7 @@ class handler(BaseHTTPRequestHandler):
                         
                         ${remedy.instructions && remedy.instructions.length > 0 ? `
                             <div class="instructions">
-                                <h4>📋 Instructions</h4>
+                                <h4>📋 Preparation & Usage</h4>
                                 <ol>
                                     ${remedy.instructions.map(step => `<li>${step}</li>`).join('')}
                                 </ol>
@@ -289,7 +345,7 @@ class handler(BaseHTTPRequestHandler):
                         ` : ''}
                         
                         <div class="source">
-                            📖 Source: ${remedy.source?.chapter || 'EPUB'}, section ${remedy.source?.pos ?? '?'}
+                            📖 Source: ${remedy.source?.book || 'Traditional Text'} - ${remedy.source?.chapter || 'Chapter'} (Section ${remedy.source?.pos || '?'})
                         </div>
                     </div>
                 `).join('');
@@ -319,7 +375,7 @@ class handler(BaseHTTPRequestHandler):
             response = {
                 "status": "healthy", 
                 "chunks_loaded": len(books_data),
-                "remedies_cached": len(remedies_cache)
+                "books": len(set(chunk.get("book", "unknown") for chunk in books_data))
             }
             self.wfile.write(json.dumps(response).encode())
             
@@ -331,9 +387,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode())
 
     def do_POST(self):
-        if self.path == '/api/upload':
-            self.handle_upload()
-        elif self.path == '/api/search':
+        if self.path == '/api/search':
             self.handle_search()
         else:
             self.send_response(404)
@@ -342,103 +396,10 @@ class handler(BaseHTTPRequestHandler):
             response = {"detail": "Not Found"}
             self.wfile.write(json.dumps(response).encode())
 
-    def handle_upload(self):
-        """Handle EPUB file upload and processing"""
-        global books_data, remedies_cache
-        
-        try:
-            # Parse the uploaded file
-            form = parse_post_data(self.rfile, self.headers)
-            if not form or 'file' not in form:
-                self.send_error_response("No file uploaded")
-                return
-                
-            file_item = form['file']
-            if not file_item.filename.endswith('.epub'):
-                self.send_error_response("Only EPUB files are supported")
-                return
-            
-            # Save uploaded file to temporary location
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as tmp_file:
-                shutil.copyfileobj(file_item.file, tmp_file)
-                tmp_path = tmp_file.name
-            
-            try:
-                # Process EPUB file
-                books_data = self.process_epub(tmp_path)
-                
-                if not books_data:
-                    self.send_error_response("No readable text found in EPUB file")
-                    return
-                
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                
-                response = {"ok": True, "chunks": len(books_data)}
-                self.wfile.write(json.dumps(response).encode())
-                
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
-            
-        except Exception as e:
-            self.send_error_response(f"Upload error: {str(e)}")
-
-    def process_epub(self, epub_path):
-        """Process EPUB file and extract text chunks"""
-        try:
-            # Import ebooklib here to handle missing dependency gracefully
-            from ebooklib import epub
-            from bs4 import BeautifulSoup
-        except ImportError:
-            # Fallback to sample data if dependencies not available
-            return [
-                {"chapter": "Sample Chapter 1", "pos": 0, "text": "Ginger remedy for nausea. Ingredients: 1 tsp fresh ginger root, 1 cup hot water. Instructions: Steep ginger in hot water for 10 minutes. Drink warm."},
-                {"chapter": "Sample Chapter 2", "pos": 0, "text": "Honey and lemon for sore throat. Ingredients: 2 tbsp honey, 1 lemon juiced, 1 cup warm water. Instructions: Mix honey and lemon juice in warm water. Sip slowly."},
-                {"chapter": "Sample Chapter 3", "pos": 0, "text": "Turmeric paste for inflammation. Ingredients: 1 tsp turmeric powder, water to make paste. Instructions: Apply paste to affected area. Leave for 20 minutes."},
-                {"chapter": "Sample Chapter 4", "pos": 0, "text": "Chamomile tea for insomnia. Ingredients: 1 tbsp dried chamomile flowers, 1 cup boiling water. Instructions: Steep for 15 minutes, strain, drink before bed."},
-                {"chapter": "Sample Chapter 5", "pos": 0, "text": "Apple cider vinegar for heartburn. Ingredients: 1 tbsp apple cider vinegar, 1 cup water. Instructions: Mix and drink 30 minutes before meals."}
-            ]
-        
-        try:
-            book = epub.read_epub(epub_path)
-            items = list(book.get_items())
-            chunks = []
-
-            for item in items:
-                if item.get_type() == epub.ITEM_DOCUMENT:
-                    # Extract text from HTML content
-                    content = item.get_content()
-                    if content:
-                        soup = BeautifulSoup(content, "html.parser")
-                        text = soup.get_text(" ", strip=True)
-                        text = " ".join(text.split())  # Clean whitespace
-                        
-                        if len(text) > 100:  # Only process substantial text
-                            # Split into chunks
-                            text_chunks = chunk_words(text, 900, 150)
-                            for pos, chunk in enumerate(text_chunks):
-                                chunks.append({
-                                    "chapter": getattr(item, "file_name", item.get_name()),
-                                    "pos": pos,
-                                    "text": chunk
-                                })
-
-            return chunks
-            
-        except Exception as e:
-            # Return sample data if EPUB processing fails
-            return [
-                {"chapter": "Processed Sample", "pos": 0, "text": f"EPUB processing encountered an issue: {str(e)}. Using sample remedy data. Ginger remedy for nausea. Ingredients: 1 tsp fresh ginger root, 1 cup hot water. Instructions: Steep ginger in hot water for 10 minutes."}
-            ]
-
     def handle_search(self):
         """Handle remedy search"""
+        load_epub_books()  # Ensure books are loaded
+        
         try:
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
@@ -448,11 +409,11 @@ class handler(BaseHTTPRequestHandler):
             max_results = search_params.get('k', 5)
             
             if not books_data:
-                self.send_error_response("No data available. Upload an EPUB file first.")
+                self.send_error_response("No remedy data loaded.")
                 return
             
             # Find relevant chunks
-            matching_chunks = simple_text_search(query, max_results)
+            matching_chunks = simple_text_search(query, max_results * 2)
             
             # Extract remedies from matching chunks
             remedies = []
@@ -465,12 +426,14 @@ class handler(BaseHTTPRequestHandler):
                     extracted = extract_ingredients_and_steps(chunk["text"])
                     if extracted["ingredients"]:
                         # Extract title from first sentence
-                        title = chunk["text"][:100].split(".")[0].strip()
-                        if len(title) > 80:
-                            title = title[:80] + "..."
+                        first_sentence = chunk["text"].split(".")[0].strip()
+                        if len(first_sentence) > 100:
+                            first_sentence = first_sentence[:100] + "..."
+                        
+                        title = first_sentence if first_sentence else f"Remedy for {query}"
                         
                         remedy_id = hashlib.md5(
-                            (chunk["chapter"] + str(chunk["pos"])).encode()
+                            (chunk["book"] + chunk["chapter"] + str(chunk["pos"])).encode()
                         ).hexdigest()[:12]
                         
                         # Add affiliate links to ingredients
@@ -486,10 +449,14 @@ class handler(BaseHTTPRequestHandler):
                             "summary": None,
                             "ingredients": ingredients_with_links,
                             "instructions": extracted["instructions"],
-                            "source": {"chapter": chunk["chapter"], "pos": chunk["pos"]}
+                            "source": {
+                                "book": chunk.get("book", "Traditional Text"),
+                                "chapter": chunk.get("chapter", "Unknown Chapter"), 
+                                "pos": chunk.get("pos", 0)
+                            }
                         })
                         
-                        if len(remedies) >= 3:
+                        if len(remedies) >= max_results:
                             break
             
             self.send_response(200)
@@ -511,3 +478,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         response = {"ok": False, "error": message}
         self.wfile.write(json.dumps(response).encode())
+
+# Load books on module import
+load_epub_books()
