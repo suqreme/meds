@@ -162,4 +162,4 @@ For issues or questions:
 This project is provided as-is for educational purposes. Users are responsible for:
 - Complying with Amazon Associates terms
 - Ensuring uploaded content rights
-- Following local regulations for health information
+- Following local regulations for health information# Force redeploy
