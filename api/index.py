@@ -286,16 +286,42 @@ Return only the JSON array with ALL natural ingredients found:"""
         try:
             parsed_ingredients = json.loads(result)
             if isinstance(parsed_ingredients, list):
-                # Convert to our format and add affiliate links
+                # Filter out non-remedy items
+                non_remedy_items = {
+                    "soft drinks", "liquor", "tobacco", "alcohol", "cigarettes", "smoking",
+                    "white flour", "white rice", "cane sugar", "processed sugar", "refined sugar",
+                    "processed foods", "junk food", "fast food", "soda", "cola", "beer", "wine",
+                    "coffee", "caffeine", "artificial sweeteners", "msg", "preservatives",
+                    "meats", "pork", "beef", "chicken", "dairy", "milk", "cheese", "butter"
+                }
+                
+                # Convert to our format and filter out non-remedies
                 formatted_ingredients = []
                 for ing in parsed_ingredients:
                     if isinstance(ing, dict) and "name" in ing:
+                        ingredient_name = ing["name"].lower().strip()
+                        
+                        # Skip if it's in the non-remedy list
+                        if any(bad_item in ingredient_name for bad_item in non_remedy_items):
+                            print(f"🚫 Filtering out non-remedy: {ing['name']}")
+                            continue
+                        
+                        # Skip overly generic items
+                        if ingredient_name in ["water", "salt", "sugar", "oil"] and len(formatted_ingredients) > 5:
+                            continue
+                            
                         formatted_ingredients.append({
                             "name": ing["name"],
                             "amount": ing.get("amount"),
                             "unit": ing.get("unit"), 
                             "raw": ing["name"]
                         })
+                        
+                        # Limit to reasonable number of ingredients
+                        if len(formatted_ingredients) >= 15:
+                            break
+                
+                print(f"✅ Filtered ingredients: {len(formatted_ingredients)} from {len(parsed_ingredients)} total")
                 return formatted_ingredients
         except json.JSONDecodeError:
             pass
@@ -518,59 +544,74 @@ def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
     return list(consolidated.values())
 
 def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
-    """Enhanced search with better remedy detection"""
-    query_words = set(query.lower().split())
+    """Precise search focused on exact query matching"""
+    original_query = query.lower().strip()
+    query_words = set(original_query.split())
     results = []
+    
+    print(f"🔍 Precise search for: '{original_query}' (words: {query_words})")
     
     # Extended remedy keywords for better matching
     remedy_keywords = ["remedy", "treatment", "cure", "heal", "recipe", "medicine", "therapeutic", 
                       "natural", "herbal", "traditional", "preparation", "formula", "mixture"]
     ingredient_keywords = ["ingredient", "ingredients", "herb", "herbs", "plant", "plants", 
                           "root", "leaf", "flower", "extract", "oil", "tea", "tincture"]
-    condition_keywords = ["for", "treats", "helps", "relieves", "reduces", "prevents", "cures"]
     
     for chunk in books_data:
         text_lower = chunk["text"].lower()
         score = 0
         
-        # Basic keyword matching
-        for word in query_words:
-            if word in text_lower:
-                # Give higher score for exact matches
-                score += text_lower.count(word) * 2
-                
-                # Extra score if the query word appears near remedy context
-                text_sentences = text_lower.split('.')
-                for sentence in text_sentences:
-                    if word in sentence and any(kw in sentence for kw in remedy_keywords):
-                        score += 5
+        # PRECISE MATCHING: Prioritize exact phrase matches
+        if original_query in text_lower:
+            score += 50  # Very high score for exact phrase match
+            print(f"✅ Found exact phrase '{original_query}' in chunk: {chunk['text'][:100]}...")
         
-        # Bonus scoring for remedy-related content
-        remedy_score = sum(3 for kw in remedy_keywords if kw in text_lower)
-        ingredient_score = sum(4 for kw in ingredient_keywords if kw in text_lower) 
-        condition_score = sum(2 for kw in condition_keywords if kw in text_lower)
+        # Look for sentences that contain the exact query terms together
+        sentences = text_lower.split('.')
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if original_query in sentence:
+                score += 30
+                # Extra bonus if this sentence also mentions remedies/treatments
+                if any(kw in sentence for kw in remedy_keywords):
+                    score += 20
+                    print(f"✅ Found remedy sentence with '{original_query}': {sentence[:150]}...")
         
-        # Higher bonus for chunks that look like actual remedies
-        if any(kw in text_lower for kw in ingredient_keywords) and any(kw in text_lower for kw in remedy_keywords):
-            score += 10
+        # Secondary scoring: Individual word matches but with proximity requirements
+        if score == 0:  # Only if we didn't find exact matches
+            words_found_in_chunk = 0
+            for word in query_words:
+                if word in text_lower:
+                    words_found_in_chunk += 1
             
-        # Bonus for medical/health conditions mentioned
-        health_conditions = ["pain", "ache", "inflammation", "infection", "cold", "flu", "fever", 
-                           "headache", "nausea", "digestive", "stomach", "throat", "cough", 
-                           "respiratory", "skin", "burn", "wound", "anxiety", "stress", "sleep"]
-        condition_bonus = sum(2 for condition in health_conditions 
-                            if condition in text_lower and any(qw in text_lower for qw in query_words))
+            # Only consider if most/all query words are present
+            word_match_ratio = words_found_in_chunk / len(query_words)
+            if word_match_ratio >= 0.8:  # At least 80% of words must be present
+                score += int(word_match_ratio * 20)
+                
+                # Look for proximity - words should appear close together
+                for sentence in sentences:
+                    words_in_sentence = sum(1 for word in query_words if word in sentence)
+                    if words_in_sentence >= 2:  # Multiple query words in same sentence
+                        score += words_in_sentence * 5
         
-        total_score = score + remedy_score + ingredient_score + condition_score + condition_bonus
+        # Bonus for remedy content only if we have some base score
+        if score > 0:
+            if any(kw in text_lower for kw in ingredient_keywords):
+                score += 3
+            if any(kw in text_lower for kw in remedy_keywords):
+                score += 5
         
-        if total_score > 0:
+        if score > 0:
             results.append({
                 "chunk": chunk,
-                "score": total_score
+                "score": score
             })
+            print(f"📊 Chunk scored {score}: {chunk['text'][:100]}...")
     
     # Sort by score and return top results
     results.sort(key=lambda x: x["score"], reverse=True)
+    print(f"📈 Found {len(results)} matching chunks, returning top {max_results}")
     return [r["chunk"] for r in results[:max_results]]
 
 def affiliate_search_url(query: str, tag: str = AFFILIATE_TAG) -> str:
@@ -941,15 +982,16 @@ class handler(BaseHTTPRequestHandler):
                     
                     title = first_sentence if first_sentence else f"Remedy for {query}"
                     
-                    remedy_id = hashlib.md5(
-                        (chunk["book"] + chunk["chapter"] + str(chunk["pos"])).encode()
-                    ).hexdigest()[:12]
+                    # Create more unique remedy ID using content hash
+                    content_snippet = chunk["text"][:200] + title  # Use content + title for uniqueness
+                    remedy_id = hashlib.md5(content_snippet.encode()).hexdigest()[:12]
                     
                     # Check for duplicate remedies
                     if remedy_id in used_remedy_ids:
-                        print(f"Skipping duplicate remedy: {remedy_id}")
+                        print(f"Skipping duplicate remedy: {remedy_id} - {title[:50]}...")
                         continue
                     used_remedy_ids.add(remedy_id)
+                    print(f"✅ Adding unique remedy: {remedy_id} - {title[:50]}...")
                     
                     # Add affiliate links to ingredients
                     ingredients_with_links = []
@@ -976,13 +1018,16 @@ class handler(BaseHTTPRequestHandler):
                 elif len(remedies) == 0 and i < 3:  # Only for first few chunks if no proper remedies
                     # Create a basic remedy from the chunk
                     title = f"Traditional approach for {query}"
-                    remedy_id = hashlib.md5((chunk["text"][:50]).encode()).hexdigest()[:12]
+                    # Create unique ID for basic remedies too
+                    content_snippet = chunk["text"][:200] + title
+                    remedy_id = hashlib.md5(content_snippet.encode()).hexdigest()[:12]
                     
                     # Check for duplicate remedies
                     if remedy_id in used_remedy_ids:
-                        print(f"Skipping duplicate basic remedy: {remedy_id}")
+                        print(f"Skipping duplicate basic remedy: {remedy_id} - {title[:50]}...")
                         continue
                     used_remedy_ids.add(remedy_id)
+                    print(f"✅ Adding unique basic remedy: {remedy_id} - {title[:50]}...")
                     
                     # Extract any ingredients we can find
                     basic_ingredients = []
