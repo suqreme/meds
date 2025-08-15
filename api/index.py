@@ -241,23 +241,25 @@ def ai_extract_ingredients(text: str) -> List[Dict]:
             else:
                 raise te
         
-        prompt = f"""You are an expert in traditional remedies and herbal medicine. Extract ALL natural ingredients, herbs, foods, and remedies mentioned in this medical/remedy text.
+        prompt = f"""You are an expert herbalist. Extract ONLY beneficial natural remedies, herbs, and healing ingredients from this traditional medicine text.
 
-CONTEXT: This text is from a traditional medicine book about natural remedies. Look for:
-- Herbs (like Red Clover, Burdock, Rhodiola, Ginseng, Ashwagandha, Turmeric, Ginger, Devil's Claw, Nettle, Hibiscus)
-- Foods (like Coconut Water, Lemon, Honey, Garlic)
-- Natural substances used in remedies
-- Essential oils and plant extracts
+CONTEXT: This is from a traditional remedy book. Focus ONLY on:
+- Medicinal herbs (Red Clover, Burdock, Rhodiola, Ginseng, Ashwagandha, Turmeric, Ginger, Devil's Claw, Nettle, Hibiscus)
+- Healing foods (Coconut Water, Lemon, Honey, Garlic)
+- Natural healing substances and plant extracts
 
-Return ONLY a JSON array of objects with this exact format:
+IGNORE and DO NOT extract:
+- Harmful substances (tobacco, alcohol, processed foods)
+- Things to avoid (soft drinks, white flour, processed sugar)
+- Generic foods without medicinal properties
+
+Return ONLY a JSON array of beneficial healing ingredients:
 {{"name": "ingredient_name", "amount": "1 tsp" or null, "unit": "tsp" or null}}
 
-IMPORTANT: Extract ALL ingredients mentioned, even if they appear in different sentences or contexts. Don't limit to just a few.
-
 Text to analyze:
-{text[:2000]}
+{text[:1500]}
 
-Return only the JSON array with ALL natural ingredients found:"""
+Extract only beneficial healing ingredients as JSON:"""
 
         # Handle both new and old OpenAI client APIs
         model_name = "gpt-3.5-turbo"
@@ -289,10 +291,12 @@ Return only the JSON array with ALL natural ingredients found:"""
                 # Filter out non-remedy items
                 non_remedy_items = {
                     "soft drinks", "liquor", "tobacco", "alcohol", "cigarettes", "smoking",
-                    "white flour", "white rice", "cane sugar", "processed sugar", "refined sugar",
+                    "white flour", "white rice", "cane sugar", "processed sugar", "refined sugar", "sugar products",
                     "processed foods", "junk food", "fast food", "soda", "cola", "beer", "wine",
                     "coffee", "caffeine", "artificial sweeteners", "msg", "preservatives",
-                    "meats", "pork", "beef", "chicken", "dairy", "milk", "cheese", "butter"
+                    "meats", "pork", "beef", "chicken", "dairy", "milk", "cheese", "butter",
+                    "especially pork", "cane sugar products", "white flour", "white rice",
+                    "soft drink", "processed", "refined", "artificial", "chemical"
                 }
                 
                 # Convert to our format and filter out non-remedies
@@ -561,21 +565,35 @@ def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
         text_lower = chunk["text"].lower()
         score = 0
         
-        # PRECISE MATCHING: Prioritize exact phrase matches
+        # ULTRA-PRECISE MATCHING: Must be specifically about the query, not just mentioning it
         if original_query in text_lower:
-            score += 50  # Very high score for exact phrase match
-            print(f"✅ Found exact phrase '{original_query}' in chunk: {chunk['text'][:100]}...")
-        
-        # Look for sentences that contain the exact query terms together
-        sentences = text_lower.split('.')
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if original_query in sentence:
-                score += 30
-                # Extra bonus if this sentence also mentions remedies/treatments
-                if any(kw in sentence for kw in remedy_keywords):
-                    score += 20
-                    print(f"✅ Found remedy sentence with '{original_query}': {sentence[:150]}...")
+            # Check if this is actually ABOUT the condition, not just mentioning it in a list
+            sentences = text_lower.split('.')
+            specific_sentences = []
+            
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if original_query in sentence:
+                    # Penalize if it's just a list of many conditions
+                    condition_count = sentence.count('cancer') + sentence.count(',') + sentence.count('disease')
+                    
+                    if condition_count <= 3:  # Max 3 conditions mentioned = likely specific
+                        score += 50
+                        specific_sentences.append(sentence)
+                        print(f"✅ Found specific sentence about '{original_query}': {sentence[:150]}...")
+                        
+                        # Extra bonus if this sentence also mentions remedies/treatments
+                        if any(kw in sentence for kw in remedy_keywords):
+                            score += 30
+                    else:
+                        # This is likely a generic list - lower score
+                        score += 10
+                        print(f"⚠️ Found generic list mentioning '{original_query}': {sentence[:150]}...")
+            
+            # If no specific sentences found, penalize heavily
+            if not specific_sentences and original_query in text_lower:
+                score = max(0, score - 30)
+                print(f"❌ Only found '{original_query}' in generic context, reducing score")
         
         # Secondary scoring: Individual word matches but with proximity requirements
         if score == 0:  # Only if we didn't find exact matches
@@ -963,11 +981,40 @@ class handler(BaseHTTPRequestHandler):
             # Extract remedies from matching chunks - be more lenient
             remedies = []
             used_remedy_ids = set()  # Track unique remedies to prevent duplicates
+            used_titles = set()  # Track titles to prevent similar content
+            
+            # Define remedy keywords for relevance checking
+            remedy_keywords = ["remedy", "treatment", "cure", "heal", "recipe", "medicine", "therapeutic", 
+                              "natural", "herbal", "traditional", "preparation", "formula", "mixture"]
             for i, chunk in enumerate(matching_chunks):
                 print(f"Processing chunk {i}: {chunk['text'][:100]}...")
                 
                 # First, try strict search for proper remedies
                 text_lower = chunk["text"].lower()
+                
+                # Check if this chunk is actually relevant to the query
+                query_relevance = 0
+                if original_query in text_lower:
+                    # Check how many times query appears and in what context
+                    query_count = text_lower.count(original_query)
+                    # Check if it's surrounded by remedy context
+                    sentences_with_query = [s for s in text_lower.split('.') if original_query in s]
+                    remedy_context_count = sum(1 for s in sentences_with_query 
+                                             if any(kw in s for kw in remedy_keywords))
+                    query_relevance = query_count + remedy_context_count * 2
+                
+                # Skip chunks that are clearly not relevant to the specific query
+                irrelevant_keywords = ["children", "kids", "baby", "infant", "toddler", "pediatric"]
+                if any(ikw in text_lower for ikw in irrelevant_keywords) and query_relevance < 2:
+                    print(f"❌ Skipping irrelevant chunk (children/pediatric content): {chunk['text'][:100]}...")
+                    continue
+                
+                # Skip generic detox/cleansing content unless specifically relevant
+                generic_keywords = ["detox", "cleansing", "general health", "overall wellness"]
+                if any(gkw in text_lower for gkw in generic_keywords) and query_relevance < 3:
+                    print(f"❌ Skipping generic content: {chunk['text'][:100]}...")
+                    continue
+                
                 is_remedy_chunk = (any(k in text_lower for k in ["ingredient", "ingredients"]) and 
                                  any(k in text_lower for k in ["remedy", "treatment", "recipe", "for ", "cure", "heal"]))
                 
@@ -986,11 +1033,15 @@ class handler(BaseHTTPRequestHandler):
                     content_snippet = chunk["text"][:200] + title  # Use content + title for uniqueness
                     remedy_id = hashlib.md5(content_snippet.encode()).hexdigest()[:12]
                     
-                    # Check for duplicate remedies
-                    if remedy_id in used_remedy_ids:
+                    # Check for duplicate remedies by ID and title similarity
+                    title_key = title.lower().replace(" ", "").replace("-", "").replace(":", "")[:50]
+                    
+                    if remedy_id in used_remedy_ids or title_key in used_titles:
                         print(f"Skipping duplicate remedy: {remedy_id} - {title[:50]}...")
                         continue
+                    
                     used_remedy_ids.add(remedy_id)
+                    used_titles.add(title_key)
                     print(f"✅ Adding unique remedy: {remedy_id} - {title[:50]}...")
                     
                     # Add affiliate links to ingredients
@@ -1021,12 +1072,15 @@ class handler(BaseHTTPRequestHandler):
                     # Create unique ID for basic remedies too
                     content_snippet = chunk["text"][:200] + title
                     remedy_id = hashlib.md5(content_snippet.encode()).hexdigest()[:12]
+                    title_key = title.lower().replace(" ", "").replace("-", "").replace(":", "")[:50]
                     
-                    # Check for duplicate remedies
-                    if remedy_id in used_remedy_ids:
+                    # Check for duplicate remedies by ID and title similarity
+                    if remedy_id in used_remedy_ids or title_key in used_titles:
                         print(f"Skipping duplicate basic remedy: {remedy_id} - {title[:50]}...")
                         continue
+                    
                     used_remedy_ids.add(remedy_id)
+                    used_titles.add(title_key)
                     print(f"✅ Adding unique basic remedy: {remedy_id} - {title[:50]}...")
                     
                     # Extract any ingredients we can find
