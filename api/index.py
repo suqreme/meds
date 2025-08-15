@@ -565,10 +565,12 @@ def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
         text_lower = chunk["text"].lower()
         score = 0
         
+        # Split text into sentences for analysis
+        sentences = text_lower.split('.')
+        
         # ULTRA-PRECISE MATCHING: Must be specifically about the query, not just mentioning it
         if original_query in text_lower:
             # Check if this is actually ABOUT the condition, not just mentioning it in a list
-            sentences = text_lower.split('.')
             specific_sentences = []
             
             for sentence in sentences:
@@ -986,6 +988,9 @@ class handler(BaseHTTPRequestHandler):
             # Define remedy keywords for relevance checking
             remedy_keywords = ["remedy", "treatment", "cure", "heal", "recipe", "medicine", "therapeutic", 
                               "natural", "herbal", "traditional", "preparation", "formula", "mixture"]
+            
+            # Make query available for processing
+            original_query = query.lower().strip()
             for i, chunk in enumerate(matching_chunks):
                 print(f"Processing chunk {i}: {chunk['text'][:100]}...")
                 
