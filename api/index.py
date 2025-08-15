@@ -399,6 +399,56 @@ class handler(BaseHTTPRequestHandler):
             
             self.wfile.write(html.encode())
             
+        elif self.path == '/api/debug':
+            # Debug endpoint to test EPUB processing
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            debug_info = {
+                "epub_libraries": False,
+                "epub_files_found": [],
+                "processing_log": []
+            }
+            
+            try:
+                import ebooklib
+                from ebooklib import epub
+                from bs4 import BeautifulSoup
+                debug_info["epub_libraries"] = True
+                debug_info["processing_log"].append("EPUB libraries imported successfully")
+                
+                # Try to process one EPUB file
+                if os.path.exists('1.epub'):
+                    try:
+                        book = epub.read_epub('1.epub')
+                        items = list(book.get_items())
+                        debug_info["processing_log"].append(f"1.epub: Found {len(items)} items")
+                        
+                        doc_count = 0
+                        for item in items:
+                            if item.get_type() == epub.ITEM_DOCUMENT:
+                                doc_count += 1
+                                if doc_count <= 3:  # Only process first 3 documents
+                                    content = item.get_content()
+                                    if content:
+                                        soup = BeautifulSoup(content, "html.parser")
+                                        text = soup.get_text(" ", strip=True)[:200]
+                                        debug_info["processing_log"].append(f"Document {doc_count}: {text}...")
+                        
+                        debug_info["processing_log"].append(f"Total documents in 1.epub: {doc_count}")
+                        
+                    except Exception as e:
+                        debug_info["processing_log"].append(f"Error processing 1.epub: {str(e)}")
+                
+            except ImportError as e:
+                debug_info["processing_log"].append(f"Cannot import EPUB libraries: {str(e)}")
+            except Exception as e:
+                debug_info["processing_log"].append(f"Other error: {str(e)}")
+            
+            self.wfile.write(json.dumps(debug_info, indent=2).encode())
+            
         elif self.path == '/api/health':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
