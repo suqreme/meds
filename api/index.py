@@ -142,6 +142,9 @@ def chunk_words(text: str, max_words=900, overlap=150) -> List[str]:
 
 def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
     """Extract ingredients and instructions from text using heuristics"""
+    print(f"\n=== EXTRACTION DEBUG START ===")
+    print(f"Snippet length: {len(snippet)}")
+    print(f"Snippet preview: {snippet[:200]}...")
     lines = [l.strip() for l in snippet.splitlines() if l.strip()]
     ingredients, steps = [], []
 
@@ -174,47 +177,102 @@ def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
         if BULLET_RE.search(ln) or mode == "step":
             steps.append(re.sub(BULLET_RE, "", ln))
 
-    # If no structured steps found, try to format the text intelligently
-    if not steps and snippet:
-        formatted_instructions = format_medical_text(snippet)
-        steps = formatted_instructions
-
-    # If no ingredients found, try AI extraction
-    if not ingredients and snippet:
+    print(f"\nBasic parser found {len(ingredients)} ingredients:")
+    for i, ing in enumerate(ingredients):
+        print(f"  {i+1}. {ing.get('name', 'NO NAME')}: {ing}")
+    
+    # Always try AI extraction for better ingredients if available
+    if snippet:
+        print(f"\nCalling AI extraction...")
         ai_ingredients = ai_extract_ingredients(snippet)
-        ingredients = ai_ingredients
+        print(f"AI returned {len(ai_ingredients)} ingredients:")
+        for i, ing in enumerate(ai_ingredients):
+            print(f"  AI-{i+1}. {ing.get('name', 'NO NAME')}: {ing}")
+        
+        if ai_ingredients:  # If AI found ingredients, use them instead
+            print(f"REPLACING basic ingredients with AI ingredients")
+            ingredients = ai_ingredients
+        else:
+            print(f"AI returned empty list, keeping basic ingredients")
 
-    return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:12]}
+    # Always try AI formatting for better instructions if available
+    if snippet:
+        formatted_instructions = format_medical_text(snippet)
+        if formatted_instructions and len(formatted_instructions) > 1:  # If AI formatted well, use it
+            steps = formatted_instructions
+        elif not steps:  # Otherwise use basic formatting as fallback
+            # Basic text splitting as fallback
+            steps = [snippet]
+
+    final_ingredients = smart_dedupe_ingredients(ingredients)
+    print(f"\nFinal ingredients after deduplication ({len(final_ingredients)}):")
+    for i, ing in enumerate(final_ingredients):
+        print(f"  FINAL-{i+1}. {ing.get('name', 'NO NAME')}: {ing}")
+    print(f"=== EXTRACTION DEBUG END ===\n")
+    
+    return {"ingredients": final_ingredients, "instructions": steps[:12]}
 
 def ai_extract_ingredients(text: str) -> List[Dict]:
     """Use AI to extract ingredients from remedy text"""
     
     openai_key = os.environ.get("OPENAI_API_KEY")
+    print(f"OpenAI API key exists: {bool(openai_key)}")
+    if openai_key:
+        print(f"API key starts with: {openai_key[:10]}...")
     if not openai_key:
+        print("❌ No OpenAI API key found - AI extraction disabled")
         return []
+    
+    print(f"Attempting AI ingredient extraction...")
     
     try:
         import openai
-        client = openai.OpenAI(api_key=openai_key)
+        # Initialize client with minimal parameters to avoid version issues
+        try:
+            client = openai.OpenAI(api_key=openai_key)
+        except TypeError as te:
+            # Fallback for older OpenAI versions  
+            print(f"Trying fallback OpenAI client initialization: {te}")
+            import openai as openai_fallback
+            openai_fallback.api_key = openai_key
+            # Use the old-style client if available
+            if hasattr(openai_fallback, 'ChatCompletion'):
+                client = openai_fallback
+            else:
+                raise te
         
-        prompt = f"""Extract the key natural ingredients/herbs mentioned in this remedy text. Return ONLY a JSON array of objects with this format:
+        prompt = f"""Extract ALL natural ingredients, herbs, foods, and remedies mentioned in this text. Return ONLY a JSON array of objects with this format:
 
 {{"name": "ingredient_name", "amount": "1 tsp" or null, "unit": "tsp" or null}}
 
-Focus on actual herbs, foods, and natural substances that would be used in the remedy. Ignore vague references.
+Include ALL herbs and natural substances mentioned, not just the first few. Examples: Rhodiola, Ginseng, Ashwagandha, Turmeric, Ginger, Devil's Claw, Nettle, Coconut Water, Hibiscus, etc.
 
 Text: {text[:1500]}
 
-Return only the JSON array, nothing else."""
+Return only the JSON array with ALL ingredients found, nothing else."""
 
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
-            temperature=0.2
-        )
+        # Handle both new and old OpenAI client APIs
+        model_name = "gpt-3.5-turbo"
+        print(f"🤖 Using AI model: {model_name}")
+        try:
+            # New client API
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.2
+            )
+        except AttributeError:
+            # Old client API fallback
+            response = client.ChatCompletion.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+            )
         
         result = response.choices[0].message.content.strip()
+        print(f"✅ OpenAI API call succeeded, response length: {len(result)}")
+        print(f"Raw AI response: {result[:200]}...")
         
         import json
         try:
@@ -222,7 +280,7 @@ Return only the JSON array, nothing else."""
             if isinstance(parsed_ingredients, list):
                 # Convert to our format and add affiliate links
                 formatted_ingredients = []
-                for ing in parsed_ingredients[:8]:
+                for ing in parsed_ingredients:
                     if isinstance(ing, dict) and "name" in ing:
                         formatted_ingredients.append({
                             "name": ing["name"],
@@ -235,7 +293,10 @@ Return only the JSON array, nothing else."""
             pass
             
     except Exception as e:
-        print(f"AI ingredient extraction error: {e}")
+        print(f"OpenAI API error in ingredient extraction: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
     
     return []
 
@@ -264,7 +325,19 @@ def ai_format_remedy_text(text: str) -> List[str]:
     
     try:
         import openai
-        client = openai.OpenAI(api_key=openai_key)
+        # Initialize client with minimal parameters to avoid version issues
+        try:
+            client = openai.OpenAI(api_key=openai_key)
+        except TypeError as te:
+            # Fallback for older OpenAI versions  
+            print(f"Trying fallback OpenAI client initialization: {te}")
+            import openai as openai_fallback
+            openai_fallback.api_key = openai_key
+            # Use the old-style client if available
+            if hasattr(openai_fallback, 'ChatCompletion'):
+                client = openai_fallback
+            else:
+                raise te
         
         prompt = f"""Parse this traditional remedy text into clear, organized sections. Return ONLY a JSON array of strings, where each string is a well-formatted instruction step. Focus on:
 
@@ -274,19 +347,31 @@ def ai_format_remedy_text(text: str) -> List[str]:
 4. Herbal preparations
 5. Application methods
 
-Keep each section under 200 words and make them actionable. Remove redundant information.
+Keep each section complete and actionable. DO NOT truncate or end with "...". Complete all sections fully.
 
 Text to parse:
 {text[:2000]}
 
 Return format: ["Step 1: Root cause explanation...", "Step 2: Primary treatment...", "Step 3: Diet recommendations...", etc.]"""
 
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=800,
-            temperature=0.3
-        )
+        # Handle both new and old OpenAI client APIs
+        model_name = "gpt-3.5-turbo"
+        print(f"🤖 Using AI model for formatting: {model_name}")
+        try:
+            # New client API
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.3
+            )
+        except AttributeError:
+            # Old client API fallback
+            response = client.ChatCompletion.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+            )
         
         result = response.choices[0].message.content.strip()
         
@@ -384,7 +469,14 @@ def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
         "tea": ["tea", "herbal tea", "green tea"],
         "oil": ["oil", "coconut oil", "olive oil", "essential oil"],
         "turmeric": ["turmeric", "turmeric powder", "fresh turmeric"],
-        "garlic": ["garlic", "fresh garlic", "garlic cloves"]
+        "garlic": ["garlic", "fresh garlic", "garlic cloves"],
+        "rhodiola": ["rhodiola", "rhodiola root"],
+        "ginseng": ["ginseng", "american ginseng", "korean ginseng"],
+        "ashwagandha": ["ashwagandha", "ashwagandha root"],
+        "devil's claw": ["devil's claw", "devils claw"],
+        "nettle": ["nettle", "stinging nettle", "nettle leaf"],
+        "coconut water": ["coconut water", "coconut milk"],
+        "hibiscus": ["hibiscus", "hibiscus flower", "hibiscus tea"]
     }
     
     # Reverse mapping for quick lookup
@@ -735,6 +827,7 @@ class handler(BaseHTTPRequestHandler):
 
     def handle_search(self):
         """Handle remedy search"""
+        print("🔍 SEARCH REQUEST RECEIVED!")
         load_epub_books()  # Ensure books are loaded
         
         try:
@@ -745,8 +838,9 @@ class handler(BaseHTTPRequestHandler):
             query = search_params.get('q', '')
             max_results = search_params.get('k', 5)
             
-            print(f"Search request: query='{query}', max_results={max_results}")
-            print(f"Books data length: {len(books_data)}")
+            print(f"🔍 Search request: query='{query}', max_results={max_results}")
+            print(f"📚 Books data length: {len(books_data)}")
+            print(f"📊 Search parameters: {search_params}")
             
             if not books_data:
                 self.send_error_response("No remedy data loaded.")
@@ -758,6 +852,7 @@ class handler(BaseHTTPRequestHandler):
             
             # Extract remedies from matching chunks - be more lenient
             remedies = []
+            used_remedy_ids = set()  # Track unique remedies to prevent duplicates
             for i, chunk in enumerate(matching_chunks):
                 print(f"Processing chunk {i}: {chunk['text'][:100]}...")
                 
@@ -780,6 +875,12 @@ class handler(BaseHTTPRequestHandler):
                     remedy_id = hashlib.md5(
                         (chunk["book"] + chunk["chapter"] + str(chunk["pos"])).encode()
                     ).hexdigest()[:12]
+                    
+                    # Check for duplicate remedies
+                    if remedy_id in used_remedy_ids:
+                        print(f"Skipping duplicate remedy: {remedy_id}")
+                        continue
+                    used_remedy_ids.add(remedy_id)
                     
                     # Add affiliate links to ingredients
                     ingredients_with_links = []
@@ -807,6 +908,12 @@ class handler(BaseHTTPRequestHandler):
                     # Create a basic remedy from the chunk
                     title = f"Traditional approach for {query}"
                     remedy_id = hashlib.md5((chunk["text"][:50]).encode()).hexdigest()[:12]
+                    
+                    # Check for duplicate remedies
+                    if remedy_id in used_remedy_ids:
+                        print(f"Skipping duplicate basic remedy: {remedy_id}")
+                        continue
+                    used_remedy_ids.add(remedy_id)
                     
                     # Extract any ingredients we can find
                     basic_ingredients = []
