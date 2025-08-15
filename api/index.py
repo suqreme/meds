@@ -241,15 +241,23 @@ def ai_extract_ingredients(text: str) -> List[Dict]:
             else:
                 raise te
         
-        prompt = f"""Extract ALL natural ingredients, herbs, foods, and remedies mentioned in this text. Return ONLY a JSON array of objects with this format:
+        prompt = f"""You are an expert in traditional remedies and herbal medicine. Extract ALL natural ingredients, herbs, foods, and remedies mentioned in this medical/remedy text.
 
+CONTEXT: This text is from a traditional medicine book about natural remedies. Look for:
+- Herbs (like Red Clover, Burdock, Rhodiola, Ginseng, Ashwagandha, Turmeric, Ginger, Devil's Claw, Nettle, Hibiscus)
+- Foods (like Coconut Water, Lemon, Honey, Garlic)
+- Natural substances used in remedies
+- Essential oils and plant extracts
+
+Return ONLY a JSON array of objects with this exact format:
 {{"name": "ingredient_name", "amount": "1 tsp" or null, "unit": "tsp" or null}}
 
-Include ALL herbs and natural substances mentioned, not just the first few. Examples: Rhodiola, Ginseng, Ashwagandha, Turmeric, Ginger, Devil's Claw, Nettle, Coconut Water, Hibiscus, etc.
+IMPORTANT: Extract ALL ingredients mentioned, even if they appear in different sentences or contexts. Don't limit to just a few.
 
-Text: {text[:1500]}
+Text to analyze:
+{text[:2000]}
 
-Return only the JSON array with ALL ingredients found, nothing else."""
+Return only the JSON array with ALL natural ingredients found:"""
 
         # Handle both new and old OpenAI client APIs
         model_name = "gpt-3.5-turbo"
@@ -510,31 +518,55 @@ def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
     return list(consolidated.values())
 
 def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
-    """Simple keyword-based search"""
+    """Enhanced search with better remedy detection"""
     query_words = set(query.lower().split())
     results = []
     
+    # Extended remedy keywords for better matching
+    remedy_keywords = ["remedy", "treatment", "cure", "heal", "recipe", "medicine", "therapeutic", 
+                      "natural", "herbal", "traditional", "preparation", "formula", "mixture"]
+    ingredient_keywords = ["ingredient", "ingredients", "herb", "herbs", "plant", "plants", 
+                          "root", "leaf", "flower", "extract", "oil", "tea", "tincture"]
+    condition_keywords = ["for", "treats", "helps", "relieves", "reduces", "prevents", "cures"]
+    
     for chunk in books_data:
-        # Calculate simple relevance score
         text_lower = chunk["text"].lower()
         score = 0
         
+        # Basic keyword matching
         for word in query_words:
             if word in text_lower:
-                score += text_lower.count(word)
+                # Give higher score for exact matches
+                score += text_lower.count(word) * 2
+                
+                # Extra score if the query word appears near remedy context
+                text_sentences = text_lower.split('.')
+                for sentence in text_sentences:
+                    if word in sentence and any(kw in sentence for kw in remedy_keywords):
+                        score += 5
         
-        # Bonus for remedy keywords
-        if any(kw in text_lower for kw in ["remedy", "treatment", "cure", "heal", "recipe"]):
-            score += 5
+        # Bonus scoring for remedy-related content
+        remedy_score = sum(3 for kw in remedy_keywords if kw in text_lower)
+        ingredient_score = sum(4 for kw in ingredient_keywords if kw in text_lower) 
+        condition_score = sum(2 for kw in condition_keywords if kw in text_lower)
+        
+        # Higher bonus for chunks that look like actual remedies
+        if any(kw in text_lower for kw in ingredient_keywords) and any(kw in text_lower for kw in remedy_keywords):
+            score += 10
             
-        # Bonus for having ingredients
-        if "ingredient" in text_lower:
-            score += 3
-            
-        if score > 0:
+        # Bonus for medical/health conditions mentioned
+        health_conditions = ["pain", "ache", "inflammation", "infection", "cold", "flu", "fever", 
+                           "headache", "nausea", "digestive", "stomach", "throat", "cough", 
+                           "respiratory", "skin", "burn", "wound", "anxiety", "stress", "sleep"]
+        condition_bonus = sum(2 for condition in health_conditions 
+                            if condition in text_lower and any(qw in text_lower for qw in query_words))
+        
+        total_score = score + remedy_score + ingredient_score + condition_score + condition_bonus
+        
+        if total_score > 0:
             results.append({
                 "chunk": chunk,
-                "score": score
+                "score": total_score
             })
     
     # Sort by score and return top results
@@ -593,7 +625,36 @@ class handler(BaseHTTPRequestHandler):
         .status { margin: 15px 0; padding: 15px; border-radius: 10px; }
         .status.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
         .status.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
-        .loading { color: #667eea; font-size: 18px; }
+        .loading { 
+            color: #667eea; 
+            font-size: 18px; 
+            text-align: center; 
+            padding: 30px; 
+            background: #f0f7ff; 
+            border-radius: 15px; 
+            border-left: 4px solid #667eea;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e2e8f0;
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .loading-text {
+            display: inline-block;
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes pulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
         .empty-state { text-align: center; color: #718096; margin: 50px 0; padding: 40px; background: #f8f9fa; border-radius: 15px; }
         .sample-searches { margin: 20px 0; }
         .sample-tag { display: inline-block; margin: 5px; padding: 8px 12px; background: #e2e8f0; color: #4a5568; border-radius: 20px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
@@ -664,7 +725,15 @@ class handler(BaseHTTPRequestHandler):
         async function performSearch() {
             if (!query.value.trim()) return;
             
-            results.innerHTML = '<div class="loading">🔍 Searching through traditional remedy texts...</div>';
+            // Show enhanced loading indicator
+            results.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span class="loading-text">🔍 Analyzing traditional remedy texts...</span>
+                    <br><br>
+                    <small>Extracting herbs and ingredients using AI...</small>
+                </div>
+            `;
             
             try {
                 const response = await fetch('/api/search', {
