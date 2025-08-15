@@ -1,20 +1,19 @@
 {
   "builds": [
     {
-      "src": "api/simple.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "api/simple.py"
+      "dest": "api/index.py"
     }
   ],
   "functions": {
-    "api/simple.py": {
-      "maxDuration": 60,
-      "memory": 1024
+    "api/index.py": {
+      "maxDuration": 30
     }
   }
 }

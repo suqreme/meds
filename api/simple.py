@@ -417,6 +417,10 @@ def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "chunks_loaded": len(books_data)}
 
+# Vercel handler
+def handler(request, context):
+    return app(request, context)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
