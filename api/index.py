@@ -1,12 +1,14 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from http.server import BaseHTTPRequestHandler
+import json
 
-app = FastAPI()
-
-@app.get("/", response_class=HTMLResponse)
-def home():
-    """Serve the main HTML page"""
-    return """
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            html = """
 <!doctype html>
 <html lang="en">
 <head>
@@ -29,12 +31,12 @@ def home():
             <p class="subtitle">Traditional & Herbal Remedies from Ancient Wisdom</p>
             
             <div class="status">
-                <strong>✅ App is working!</strong><br>
-                The full functionality is being deployed. Please check back in a few minutes for the complete remedy search interface.
+                <strong>✅ App is now working!</strong><br>
+                The deployment was successful. We're building the full functionality next.
             </div>
             
             <div style="margin-top: 30px; font-size: 14px; color: #718096;">
-                <strong>Coming soon:</strong><br>
+                <strong>Features to be added:</strong><br>
                 • Upload EPUB files with traditional remedy books<br>
                 • Search for remedies by symptoms<br>
                 • Extract structured ingredients and instructions<br>
@@ -44,8 +46,22 @@ def home():
     </div>
 </body>
 </html>
-    """
-
-@app.get("/api/health")
-def health_check():
-    return {"status": "healthy", "message": "Basic API working"}
+            """
+            
+            self.wfile.write(html.encode())
+            
+        elif self.path == '/api/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            response = {"status": "healthy", "message": "Basic API working"}
+            self.wfile.write(json.dumps(response).encode())
+            
+        else:
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            response = {"detail": "Not Found"}
+            self.wfile.write(json.dumps(response).encode())
