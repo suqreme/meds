@@ -34,10 +34,12 @@ def load_epub_books():
         print(f"Error listing files: {e}")
     
     try:
-        # Try to import EPUB processing libraries
+        # Try to import EPUB processing libraries with specific error handling
+        import ebooklib
         from ebooklib import epub
         from bs4 import BeautifulSoup
         print("EPUB libraries imported successfully")
+        print(f"ebooklib version: {getattr(ebooklib, '__version__', 'unknown')}")
         
         epub_files = []
         # Check for EPUB files in the current directory
@@ -56,25 +58,32 @@ def load_epub_books():
                 items = list(book.get_items())
                 print(f"Found {len(items)} items in {epub_file}")
 
+                document_count = 0
                 for item in items:
                     if item.get_type() == epub.ITEM_DOCUMENT:
-                        # Extract text from HTML content
-                        content = item.get_content()
-                        if content:
-                            soup = BeautifulSoup(content, "html.parser")
-                            text = soup.get_text(" ", strip=True)
-                            text = " ".join(text.split())  # Clean whitespace
-                            
-                            if len(text) > 100:  # Only process substantial text
-                                # Split into chunks
-                                text_chunks = chunk_words(text, 900, 150)
-                                for pos, chunk in enumerate(text_chunks):
-                                    chunks.append({
-                                        "book": epub_file,
-                                        "chapter": getattr(item, "file_name", item.get_name()),
-                                        "pos": pos,
-                                        "text": chunk
-                                    })
+                        document_count += 1
+                        try:
+                            # Extract text from HTML content
+                            content = item.get_content()
+                            if content:
+                                soup = BeautifulSoup(content, "lxml" if "lxml" in str(content) else "html.parser")
+                                text = soup.get_text(" ", strip=True)
+                                text = " ".join(text.split())  # Clean whitespace
+                                
+                                if len(text) > 50:  # Lower threshold to capture more content
+                                    print(f"Processing document {document_count}: {text[:100]}...")
+                                    # Split into chunks
+                                    text_chunks = chunk_words(text, 900, 150)
+                                    for pos, chunk in enumerate(text_chunks):
+                                        chunks.append({
+                                            "book": epub_file,
+                                            "chapter": getattr(item, "file_name", item.get_name()),
+                                            "pos": pos,
+                                            "text": chunk
+                                        })
+                        except Exception as doc_error:
+                            print(f"Error processing document in {epub_file}: {doc_error}")
+                            continue
                                     
                 print(f"Extracted {len([c for c in chunks if c['book'] == epub_file])} chunks from {epub_file}")
                                     
@@ -91,7 +100,7 @@ def load_epub_books():
         
     # Always ensure we have some data - use sample data if no EPUB chunks were loaded
     if not chunks:
-        print("Loading fallback sample data...")
+        print("Loading fallback sample data - EPUB processing failed!")
         books_data = [
             {"book": "Sample Book 1", "chapter": "Digestive Issues", "pos": 0, "text": "Ginger remedy for nausea and morning sickness. Ingredients: 1 tsp fresh ginger root, 1 cup hot water, honey to taste. Instructions: Peel and slice fresh ginger. Steep in hot water for 10 minutes. Add honey and drink warm. Effective for motion sickness and pregnancy nausea."},
             
