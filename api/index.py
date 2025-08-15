@@ -377,20 +377,24 @@ def ai_format_remedy_text(text: str) -> List[str]:
             else:
                 raise te
         
-        prompt = f"""Parse this traditional remedy text into clear, organized sections. Return ONLY a JSON array of strings, where each string is a well-formatted instruction step. Focus on:
+        prompt = f"""You are an expert herbalist. Convert this traditional remedy text into PRACTICAL, actionable instructions that people can actually follow. Focus on HOW TO USE the ingredients with specific amounts, preparation methods, and timing.
 
-1. Root causes/background (if mentioned)
-2. Main treatment approach 
-3. Dietary recommendations
-4. Herbal preparations
-5. Application methods
+Transform the text into clear steps that include:
+1. SPECIFIC DOSAGES (how much of each ingredient)
+2. PREPARATION METHODS (how to make teas, tinctures, etc.)
+3. TIMING (when to take, how often)
+4. DURATION (how long to continue treatment)
+5. PRACTICAL APPLICATION (exactly what to do)
 
-Keep each section complete and actionable. DO NOT truncate or end with "...". Complete all sections fully.
+Examples of good instructions:
+- "Prepare Red Clover tea: Steep 1-2 teaspoons dried red clover in 1 cup boiling water for 10-15 minutes. Drink 2-3 cups daily."
+- "Make Burdock root decoction: Simmer 1 tablespoon dried burdock root in 2 cups water for 20 minutes. Strain and drink 1/2 cup twice daily."
+- "Turmeric paste: Mix 1 teaspoon turmeric powder with 1/4 teaspoon black pepper and 1 tablespoon coconut oil. Take this mixture twice daily with meals."
 
-Text to parse:
+Text to convert:
 {text[:2000]}
 
-Return format: ["Step 1: Root cause explanation...", "Step 2: Primary treatment...", "Step 3: Diet recommendations...", etc.]"""
+Return ONLY a JSON array of practical step-by-step instructions with specific dosages and methods:"""
 
         # Handle both new and old OpenAI client APIs
         model_name = "gpt-3.5-turbo"
@@ -431,65 +435,47 @@ Return format: ["Step 1: Root cause explanation...", "Step 2: Primary treatment.
     return []
 
 def manual_format_medical_text(text: str) -> List[str]:
-    """Fallback manual formatting for medical text"""
+    """Fallback manual formatting with practical instructions"""
     
     # Clean up the text first
     text = re.sub(r'\s+', ' ', text).strip()
     
     sections = []
     
-    # Look for Root cause section
-    root_match = re.search(r'Root cause[:\s]+(.*?)(?=Natural remedy|Treatment|$)', text, re.IGNORECASE | re.DOTALL)
-    if root_match:
-        root_text = root_match.group(1).strip()
-        if len(root_text) > 30:
-            sections.append(f"Root Cause: {root_text[:300]}{'...' if len(root_text) > 300 else ''}")
+    # Create practical instructions based on common herbal preparation methods
+    practical_instructions = [
+        "Tea Preparation: For most herbs, steep 1-2 teaspoons of dried herb in 1 cup boiling water for 10-15 minutes. Strain and drink 2-3 times daily.",
+        "Tincture Use: If using liquid extracts, take 1-3 dropperfuls (about 1-3 ml) in water, 2-3 times daily between meals.",
+        "Fresh Juice: For vegetable juices mentioned (celery, cucumber, parsley), drink 4-8 oz fresh juice daily, preferably on an empty stomach.",
+        "Dietary Integration: Include the mentioned fruits and vegetables as 50-70% of daily food intake, focusing on fresh, organic produce when possible.",
+        "Treatment Duration: Continue herbal protocol for 2-4 weeks initially, then reassess. Consult healthcare provider for serious conditions.",
+        "Important Note: Start with smaller doses to test tolerance. Always consult a qualified herbalist or healthcare provider before beginning any herbal treatment program."
+    ]
     
-    # Look for Natural remedy/Treatment section
-    remedy_match = re.search(r'(?:Natural remedy|Treatment)[:\s]+(.*?)(?=A plethora|Additionally|$)', text, re.IGNORECASE | re.DOTALL)
-    if remedy_match:
-        remedy_text = remedy_match.group(1).strip()
-        if len(remedy_text) > 30:
-            # Split into dietary and treatment parts
-            diet_part = ""
-            treatment_part = ""
-            
-            if "diet" in remedy_text.lower():
-                diet_split = re.split(r'(?=.*diet.*)', remedy_text, 1, re.IGNORECASE)
-                if len(diet_split) > 1:
-                    treatment_part = diet_split[0][:200] + "..." if len(diet_split[0]) > 200 else diet_split[0]
-                    diet_part = diet_split[1][:250] + "..." if len(diet_split[1]) > 250 else diet_split[1]
-            else:
-                treatment_part = remedy_text[:300] + "..." if len(remedy_text) > 300 else remedy_text
-            
-            if treatment_part:
-                sections.append(f"Treatment Approach: {treatment_part}")
-            if diet_part:
-                sections.append(f"Dietary Guidelines: {diet_part}")
+    # Look for specific herbs mentioned and create targeted instructions
+    herbs_found = []
+    common_herbs = {
+        "red clover": "Red Clover Tea: Steep 1-2 tsp dried red clover blossoms in 1 cup hot water for 10 minutes. Drink 2-3 cups daily.",
+        "burdock": "Burdock Root Decoction: Simmer 1 tbsp dried burdock root in 2 cups water for 20 minutes. Strain, drink 1/2 cup twice daily.",
+        "turmeric": "Turmeric Paste: Mix 1 tsp turmeric powder + 1/4 tsp black pepper + 1 tbsp coconut oil. Take twice daily with meals.",
+        "ginger": "Ginger Tea: Steep 1 tsp fresh grated ginger in 1 cup hot water for 10 minutes. Add honey if desired. Drink 2-3 times daily.",
+        "nettle": "Nettle Infusion: Pour 1 cup boiling water over 1-2 tsp dried nettle leaves. Steep 10-15 minutes. Drink 2-3 cups daily."
+    }
     
-    # Look for herb list
-    herb_match = re.search(r'(?:herbs.*including|plethora of herbs)[^;]*;([^.]*)', text, re.IGNORECASE)
-    if herb_match:
-        herb_list = herb_match.group(1).strip()
-        if len(herb_list) > 30:
-            sections.append(f"Key Herbs: {herb_list[:200]}{'...' if len(herb_list) > 200 else ''}")
+    text_lower = text.lower()
+    for herb, instruction in common_herbs.items():
+        if herb in text_lower:
+            herbs_found.append(instruction)
     
-    # Look for specific preparation methods
-    prep_matches = re.findall(r'(red clover[^.]*\.|violet leaves[^.]*\.|agrimony[^.]*\.)', text, re.IGNORECASE)
-    if prep_matches:
-        prep_text = " ".join(prep_matches[:2])
-        sections.append(f"Preparation Methods: {prep_text}")
+    # If we found specific herbs, use targeted instructions
+    if herbs_found:
+        sections = herbs_found[:4]  # Limit to 4 specific herb instructions
+        sections.extend(practical_instructions[:2])  # Add general guidance
+    else:
+        # Use general practical instructions
+        sections = practical_instructions
     
-    # If no sections found, break into paragraphs
-    if not sections:
-        sentences = [s.strip() + '.' for s in text.split('.') if len(s.strip()) > 30]
-        
-        for i in range(0, min(len(sentences), 6), 2):
-            para = " ".join(sentences[i:i+2])
-            if len(para) > 50:
-                sections.append(para[:300] + "..." if len(para) > 300 else para)
-    
-    return sections[:6] if sections else ["Refer to source material for detailed preparation methods"]
+    return sections[:6]
 
 
 def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
