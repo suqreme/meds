@@ -174,7 +174,55 @@ def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
         if BULLET_RE.search(ln) or mode == "step":
             steps.append(re.sub(BULLET_RE, "", ln))
 
-    return {"ingredients": ingredients[:10], "instructions": steps[:12]}
+    return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:10]}
+
+def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
+    """Smart deduplication and consolidation of ingredients"""
+    if not ingredients:
+        return []
+    
+    # Group similar ingredients
+    ingredient_groups = {}
+    common_herbs = {
+        "ginger": ["ginger", "ginger root", "fresh ginger"],
+        "lemon": ["lemon", "lemon juice", "fresh lemon", "lemon juiced"],
+        "honey": ["honey", "raw honey", "organic honey"],
+        "water": ["water", "hot water", "warm water", "boiling water"],
+        "tea": ["tea", "herbal tea", "green tea"],
+        "oil": ["oil", "coconut oil", "olive oil", "essential oil"],
+        "turmeric": ["turmeric", "turmeric powder", "fresh turmeric"],
+        "garlic": ["garlic", "fresh garlic", "garlic cloves"]
+    }
+    
+    # Reverse mapping for quick lookup
+    herb_lookup = {}
+    for main_name, variants in common_herbs.items():
+        for variant in variants:
+            herb_lookup[variant.lower()] = main_name
+    
+    consolidated = {}
+    
+    for ing in ingredients:
+        name_lower = ing["name"].lower().strip()
+        
+        # Skip non-ingredients
+        if name_lower in ["teaspoon", "tablespoon", "cup", "boiling", "fresh", "organic", "raw"]:
+            continue
+            
+        # Find the main ingredient name
+        main_name = herb_lookup.get(name_lower, name_lower)
+        
+        # If we already have this ingredient, choose the best version
+        if main_name in consolidated:
+            existing = consolidated[main_name]
+            # Prefer the version with amount and unit
+            if ing["amount"] and ing["unit"] and not (existing["amount"] and existing["unit"]):
+                consolidated[main_name] = ing
+        else:
+            consolidated[main_name] = ing
+            consolidated[main_name]["name"] = main_name.title()  # Capitalize properly
+    
+    return list(consolidated.values())
 
 def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
     """Simple keyword-based search"""
@@ -572,17 +620,24 @@ class handler(BaseHTTPRequestHandler):
                     if extracted["ingredients"]:
                         basic_ingredients = extracted["ingredients"]
                     else:
-                        # Try to find ingredient-like words
-                        words = chunk["text"].split()
-                        for word in words:
-                            if any(herb in word.lower() for herb in ["ginger", "honey", "lemon", "water", "oil", "tea", "garlic", "turmeric"]):
+                        # Try to find ingredient-like words from common herbs
+                        text_lower = chunk["text"].lower()
+                        common_ingredients = ["ginger", "honey", "lemon", "water", "oil", "tea", "garlic", "turmeric", 
+                                           "cinnamon", "pepper", "salt", "vinegar", "chamomile", "mint", "basil"]
+                        
+                        found_ingredients = set()
+                        for ingredient in common_ingredients:
+                            if ingredient in text_lower and ingredient not in found_ingredients:
+                                found_ingredients.add(ingredient)
                                 basic_ingredients.append({
-                                    "name": word,
+                                    "name": ingredient.title(),
                                     "amount": None,
                                     "unit": None,
-                                    "raw": word,
-                                    "link": affiliate_search_url(word)
+                                    "raw": ingredient,
+                                    "link": affiliate_search_url(ingredient)
                                 })
+                                if len(basic_ingredients) >= 5:  # Limit to 5 basic ingredients
+                                    break
                     
                     remedies.append({
                         "id": remedy_id,
