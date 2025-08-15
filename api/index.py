@@ -179,94 +179,194 @@ def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
         formatted_instructions = format_medical_text(snippet)
         steps = formatted_instructions
 
+    # If no ingredients found, try AI extraction
+    if not ingredients and snippet:
+        ai_ingredients = ai_extract_ingredients(snippet)
+        ingredients = ai_ingredients
+
     return {"ingredients": smart_dedupe_ingredients(ingredients)[:8], "instructions": steps[:12]}
 
+def ai_extract_ingredients(text: str) -> List[Dict]:
+    """Use AI to extract ingredients from remedy text"""
+    
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        return []
+    
+    try:
+        import openai
+        client = openai.OpenAI(api_key=openai_key)
+        
+        prompt = f"""Extract the key natural ingredients/herbs mentioned in this remedy text. Return ONLY a JSON array of objects with this format:
+
+{{"name": "ingredient_name", "amount": "1 tsp" or null, "unit": "tsp" or null}}
+
+Focus on actual herbs, foods, and natural substances that would be used in the remedy. Ignore vague references.
+
+Text: {text[:1500]}
+
+Return only the JSON array, nothing else."""
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.2
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        import json
+        try:
+            parsed_ingredients = json.loads(result)
+            if isinstance(parsed_ingredients, list):
+                # Convert to our format and add affiliate links
+                formatted_ingredients = []
+                for ing in parsed_ingredients[:8]:
+                    if isinstance(ing, dict) and "name" in ing:
+                        formatted_ingredients.append({
+                            "name": ing["name"],
+                            "amount": ing.get("amount"),
+                            "unit": ing.get("unit"), 
+                            "raw": ing["name"]
+                        })
+                return formatted_ingredients
+        except json.JSONDecodeError:
+            pass
+            
+    except Exception as e:
+        print(f"AI ingredient extraction error: {e}")
+    
+    return []
+
 def format_medical_text(text: str) -> List[str]:
-    """Smart formatting specifically for medical/remedy text"""
+    """AI-powered formatting of medical/remedy text using OpenAI"""
+    
+    # First try AI formatting, fall back to manual if it fails
+    try:
+        ai_formatted = ai_format_remedy_text(text)
+        if ai_formatted and len(ai_formatted) > 1:
+            return ai_formatted
+    except Exception as e:
+        print(f"AI formatting failed: {e}")
+    
+    # Fallback to manual formatting
+    return manual_format_medical_text(text)
+
+def ai_format_remedy_text(text: str) -> List[str]:
+    """Use OpenAI to intelligently format remedy text"""
+    
+    # Check if OpenAI API key is available
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        print("No OpenAI API key found")
+        return []
+    
+    try:
+        import openai
+        client = openai.OpenAI(api_key=openai_key)
+        
+        prompt = f"""Parse this traditional remedy text into clear, organized sections. Return ONLY a JSON array of strings, where each string is a well-formatted instruction step. Focus on:
+
+1. Root causes/background (if mentioned)
+2. Main treatment approach 
+3. Dietary recommendations
+4. Herbal preparations
+5. Application methods
+
+Keep each section under 200 words and make them actionable. Remove redundant information.
+
+Text to parse:
+{text[:2000]}
+
+Return format: ["Step 1: Root cause explanation...", "Step 2: Primary treatment...", "Step 3: Diet recommendations...", etc.]"""
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Try to parse as JSON
+        import json
+        try:
+            parsed_steps = json.loads(result)
+            if isinstance(parsed_steps, list) and len(parsed_steps) > 0:
+                return parsed_steps[:8]  # Limit to 8 steps
+        except json.JSONDecodeError:
+            # If not valid JSON, split by lines
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            return lines[:6]
+            
+    except Exception as e:
+        print(f"OpenAI API error: {e}")
+        return []
+    
+    return []
+
+def manual_format_medical_text(text: str) -> List[str]:
+    """Fallback manual formatting for medical text"""
     
     # Clean up the text first
     text = re.sub(r'\s+', ' ', text).strip()
     
-    # Look for specific medical content patterns
     sections = []
     
-    # Pattern 1: Look for "Root cause" or "Natural remedy" sections
-    root_cause_match = re.search(r'Root cause[:\s]+(.*?)(?=Natural remedy|Treatment|$)', text, re.IGNORECASE | re.DOTALL)
-    if root_cause_match:
-        root_text = root_cause_match.group(1).strip()
+    # Look for Root cause section
+    root_match = re.search(r'Root cause[:\s]+(.*?)(?=Natural remedy|Treatment|$)', text, re.IGNORECASE | re.DOTALL)
+    if root_match:
+        root_text = root_match.group(1).strip()
         if len(root_text) > 30:
-            sections.append(f"**Root Cause:** {root_text[:300]}{'...' if len(root_text) > 300 else ''}")
+            sections.append(f"Root Cause: {root_text[:300]}{'...' if len(root_text) > 300 else ''}")
     
-    # Pattern 2: Look for "Natural remedy" or "Treatment" sections  
-    remedy_match = re.search(r'(?:Natural remedy|Treatment)[:\s]+(.*?)(?=Root cause|In addition|Additionally|$)', text, re.IGNORECASE | re.DOTALL)
+    # Look for Natural remedy/Treatment section
+    remedy_match = re.search(r'(?:Natural remedy|Treatment)[:\s]+(.*?)(?=A plethora|Additionally|$)', text, re.IGNORECASE | re.DOTALL)
     if remedy_match:
         remedy_text = remedy_match.group(1).strip()
         if len(remedy_text) > 30:
-            sections.append(f"**Treatment:** {remedy_text[:350]}{'...' if len(remedy_text) > 350 else ''}")
-    
-    # Pattern 3: Look for dietary recommendations
-    diet_match = re.search(r'(?:diet|dietary|eating)[^.]*?(?:fruit|vegetable|herb|juice)[^.]*\.(?:[^.]*\.)*', text, re.IGNORECASE)
-    if diet_match:
-        diet_text = diet_match.group().strip()
-        if len(diet_text) > 30:
-            sections.append(f"**Dietary Approach:** {diet_text}")
-    
-    # Pattern 4: Look for herbal recommendations
-    herb_patterns = [
-        r'(?:herbs?|herbal)[^.]*?(?:including|such as)[^.]*?\.(?:[^.]*\.)*',
-        r'(?:red clover|burdock|echinacea|dandelion)[^.]*?\.(?:[^.]*\.)*'
-    ]
-    
-    for pattern in herb_patterns:
-        herb_match = re.search(pattern, text, re.IGNORECASE)
-        if herb_match:
-            herb_text = herb_match.group().strip()
-            if len(herb_text) > 30 and not any(herb_text[:50] in section for section in sections):
-                sections.append(f"**Herbal Support:** {herb_text[:300]}{'...' if len(herb_text) > 300 else ''}")
-                break
-    
-    # Pattern 5: Look for preparation instructions
-    prep_keywords = ["tea", "boiling", "steeping", "preparation", "mix", "apply", "massage", "bath"]
-    prep_sentences = []
-    
-    for sentence in text.split('.'):
-        sentence = sentence.strip()
-        if any(keyword in sentence.lower() for keyword in prep_keywords) and len(sentence) > 20:
-            prep_sentences.append(sentence)
-            if len(prep_sentences) >= 2:
-                break
-    
-    if prep_sentences:
-        prep_text = '. '.join(prep_sentences) + '.'
-        sections.append(f"**Preparation:** {prep_text}")
-    
-    # If we didn't find structured content, break into logical paragraphs
-    if not sections:
-        # Split by major sentence breaks and group logically
-        sentences = [s.strip() + '.' for s in text.split('.') if len(s.strip()) > 20]
-        
-        current_para = ""
-        for sentence in sentences[:10]:  # Limit to first 10 sentences
-            if len(current_para + sentence) > 250:
-                if current_para:
-                    sections.append(current_para.strip())
-                current_para = sentence
+            # Split into dietary and treatment parts
+            diet_part = ""
+            treatment_part = ""
+            
+            if "diet" in remedy_text.lower():
+                diet_split = re.split(r'(?=.*diet.*)', remedy_text, 1, re.IGNORECASE)
+                if len(diet_split) > 1:
+                    treatment_part = diet_split[0][:200] + "..." if len(diet_split[0]) > 200 else diet_split[0]
+                    diet_part = diet_split[1][:250] + "..." if len(diet_split[1]) > 250 else diet_split[1]
             else:
-                current_para += " " + sentence if current_para else sentence
+                treatment_part = remedy_text[:300] + "..." if len(remedy_text) > 300 else remedy_text
+            
+            if treatment_part:
+                sections.append(f"Treatment Approach: {treatment_part}")
+            if diet_part:
+                sections.append(f"Dietary Guidelines: {diet_part}")
+    
+    # Look for herb list
+    herb_match = re.search(r'(?:herbs.*including|plethora of herbs)[^;]*;([^.]*)', text, re.IGNORECASE)
+    if herb_match:
+        herb_list = herb_match.group(1).strip()
+        if len(herb_list) > 30:
+            sections.append(f"Key Herbs: {herb_list[:200]}{'...' if len(herb_list) > 200 else ''}")
+    
+    # Look for specific preparation methods
+    prep_matches = re.findall(r'(red clover[^.]*\.|violet leaves[^.]*\.|agrimony[^.]*\.)', text, re.IGNORECASE)
+    if prep_matches:
+        prep_text = " ".join(prep_matches[:2])
+        sections.append(f"Preparation Methods: {prep_text}")
+    
+    # If no sections found, break into paragraphs
+    if not sections:
+        sentences = [s.strip() + '.' for s in text.split('.') if len(s.strip()) > 30]
         
-        if current_para:
-            sections.append(current_para.strip())
+        for i in range(0, min(len(sentences), 6), 2):
+            para = " ".join(sentences[i:i+2])
+            if len(para) > 50:
+                sections.append(para[:300] + "..." if len(para) > 300 else para)
     
-    # Clean up sections and ensure they're not too long
-    final_sections = []
-    for section in sections[:6]:  # Limit to 6 sections
-        section = section.strip()
-        if len(section) > 30:
-            # Remove markdown formatting for display
-            section = re.sub(r'\*\*(.*?)\*\*', r'\1:', section)
-            final_sections.append(section)
-    
-    return final_sections if final_sections else ["Refer to the source material for detailed preparation methods"]
+    return sections[:6] if sections else ["Refer to source material for detailed preparation methods"]
 
 
 def smart_dedupe_ingredients(ingredients: List[Dict]) -> List[Dict]:
