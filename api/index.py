@@ -282,7 +282,8 @@ Extract only beneficial healing ingredients as JSON:"""
         
         result = response.choices[0].message.content.strip()
         print(f"✅ OpenAI API call succeeded, response length: {len(result)}")
-        print(f"Raw AI response: {result[:200]}...")
+        print(f"Raw AI response: {result[:500]}...")
+        print(f"Input text was: {text[:300]}...")
         
         import json
         try:
@@ -313,11 +314,19 @@ Extract only beneficial healing ingredients as JSON:"""
                         # Skip overly generic items
                         if ingredient_name in ["water", "salt", "sugar", "oil"] and len(formatted_ingredients) > 5:
                             continue
-                            
+                        
+                        # Fix amount/unit formatting - avoid duplication
+                        amount = ing.get("amount", "").strip() if ing.get("amount") else ""
+                        unit = ing.get("unit", "").strip() if ing.get("unit") else ""
+                        
+                        # If amount already contains unit, don't add unit separately
+                        if unit and amount and unit.lower() in amount.lower():
+                            unit = ""
+                        
                         formatted_ingredients.append({
-                            "name": ing["name"],
-                            "amount": ing.get("amount"),
-                            "unit": ing.get("unit"), 
+                            "name": ing["name"].strip(),
+                            "amount": amount if amount else None,
+                            "unit": unit if unit else None, 
                             "raw": ing["name"]
                         })
                         
@@ -422,7 +431,17 @@ Return ONLY a JSON array of practical step-by-step instructions with specific do
         try:
             parsed_steps = json.loads(result)
             if isinstance(parsed_steps, list) and len(parsed_steps) > 0:
-                return parsed_steps[:8]  # Limit to 8 steps
+                # Ensure all items are strings, not objects
+                string_steps = []
+                for step in parsed_steps[:8]:
+                    if isinstance(step, dict):
+                        # If it's an object, convert to string representation
+                        string_steps.append(str(step.get('text', step.get('instruction', str(step)))))
+                    elif isinstance(step, str):
+                        string_steps.append(step)
+                    else:
+                        string_steps.append(str(step))
+                return string_steps
         except json.JSONDecodeError:
             # If not valid JSON, split by lines
             lines = [line.strip() for line in result.split('\n') if line.strip()]
