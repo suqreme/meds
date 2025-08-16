@@ -127,8 +127,35 @@ def load_epub_books():
     
     print(f"Final: Loaded {len(books_data)} text chunks from books")
 
-def chunk_words(text: str, max_words=900, overlap=150) -> List[str]:
-    """Split text into overlapping chunks"""
+def chunk_words(text: str, max_words=1200, overlap=200) -> List[str]:
+    """Split text into overlapping chunks with better remedy detection"""
+    
+    # First try to split by sections/chapters if they exist
+    if re.search(r'\d+\.\s+[A-Z][^.]*(?:cancer|disease|condition|remedy)', text, re.IGNORECASE):
+        # Split by numbered sections (like "43. Liver Cancer")
+        sections = re.split(r'(\d+\.\s+[A-Z][^.]*(?:cancer|disease|condition|remedy)[^.]*)', text, flags=re.IGNORECASE)
+        chunks = []
+        
+        for i in range(1, len(sections), 2):  # Every other item starting from 1
+            if i + 1 < len(sections):
+                section_title = sections[i].strip()
+                section_content = sections[i + 1].strip()
+                full_section = f"{section_title} {section_content}"
+                
+                # If section is too long, split it but keep title
+                if len(full_section.split()) > max_words:
+                    content_words = section_content.split()
+                    for j in range(0, len(content_words), max_words - 50):
+                        chunk_content = " ".join(content_words[j:j + max_words - 50])
+                        chunks.append(f"{section_title} {chunk_content}")
+                else:
+                    chunks.append(full_section)
+        
+        if chunks:
+            print(f"📚 Split into {len(chunks)} section-based chunks")
+            return chunks
+    
+    # Fallback to word-based chunking with larger size for remedies
     words = text.split()
     chunks = []
     i = 0
@@ -138,6 +165,8 @@ def chunk_words(text: str, max_words=900, overlap=150) -> List[str]:
         if end_idx >= len(words):
             break
         i += max_words - overlap
+    
+    print(f"📚 Split into {len(chunks)} word-based chunks")
     return chunks
 
 def extract_ingredients_and_steps(snippet: str) -> Dict[str, Any]:
@@ -693,98 +722,387 @@ class handler(BaseHTTPRequestHandler):
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Traditional Remedy Search - Natural Healing Database</title>
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #333; }
-        .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .box { width: min(900px, 95vw); text-align: center; background: rgba(255,255,255,0.95); padding: 40px; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.15); }
-        h1 { color: #2d3748; margin-bottom: 15px; font-size: 2.5em; background: linear-gradient(45deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .subtitle { color: #718096; margin-bottom: 30px; font-size: 1.2em; }
-        .stats { background: #f0f7ff; padding: 15px; border-radius: 10px; margin-bottom: 30px; color: #2c5282; }
-        input[type="text"] { width: 100%; padding: 16px 20px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 18px; margin-bottom: 20px; box-sizing: border-box; transition: border-color 0.3s; }
-        input[type="text"]:focus { border-color: #667eea; outline: none; }
-        .btn { padding: 16px 32px; border-radius: 10px; border: none; background: linear-gradient(45deg, #667eea, #764ba2); color: white; cursor: pointer; font-size: 18px; font-weight: 600; transition: transform 0.2s; }
-        .btn:hover { transform: translateY(-2px); }
-        .card { margin-top: 25px; text-align: left; padding: 25px; border: 1px solid #e2e8f0; border-radius: 15px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .card h3 { color: #2d3748; margin-top: 0; font-size: 1.3em; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
-        .ingredients li { margin: 10px 0; padding: 8px 0; }
-        .ing-link { display: inline-block; margin-left: 15px; padding: 6px 14px; background: linear-gradient(45deg, #667eea, #764ba2); color: white; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 500; }
-        .ing-link:hover { opacity: 0.9; }
-        .instructions { margin-top: 20px; }
-        .instructions ol { padding-left: 25px; }
-        .instructions li { margin: 8px 0; line-height: 1.6; }
-        .source { font-size: 13px; color: #718096; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e2e8f0; background: #f8f9fa; padding: 15px; border-radius: 8px; }
-        .disclosure { font-size: 13px; color: #718096; margin-top: 30px; padding: 20px; background: #fff3cd; border-radius: 10px; border-left: 4px solid #ffc107; }
-        .status { margin: 15px 0; padding: 15px; border-radius: 10px; }
-        .status.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
-        .status.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
-        .loading { 
-            color: #667eea; 
-            font-size: 18px; 
-            text-align: center; 
-            padding: 30px; 
-            background: #f0f7ff; 
-            border-radius: 15px; 
-            border-left: 4px solid #667eea;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary: #10b981;
+            --primary-dark: #059669;
+            --secondary: #f3f4f6;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --border: #e5e7eb;
+            --bg-card: #ffffff;
+            --bg-page: #f9fafb;
+            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        .spinner {
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+            background: var(--bg-page);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .title {
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
+        }
+        
+        .title-emoji {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            margin-bottom: 2rem;
+        }
+        
+        .stats {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-card);
+            padding: 0.75rem 1.5rem;
+            border-radius: 100px;
+            border: 1px solid var(--border);
+            font-weight: 500;
+            color: var(--text-secondary);
+            box-shadow: var(--shadow);
+        }
+        
+        .search-section {
+            background: var(--bg-card);
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            background: var(--bg-page);
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+        }
+        
+        .search-btn {
+            width: 100%;
+            padding: 1rem 2rem;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 1rem;
+        }
+        
+        .search-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+        }
+        
+        .sample-searches {
+            margin-top: 1.5rem;
+            text-align: center;
+        }
+        
+        .sample-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 1rem;
+            display: block;
+        }
+        
+        .sample-tag {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #e2e8f0;
+            margin: 0.25rem;
+            padding: 0.5rem 1rem;
+            background: var(--secondary);
+            color: var(--text-secondary);
+            border-radius: 100px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border: 1px solid var(--border);
+        }
+        
+        .sample-tag:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-1px);
+        }
+        
+        .remedy-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            transition: all 0.2s ease;
+        }
+        
+        .remedy-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+        
+        .remedy-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 1rem;
+        }
+        
+        .remedy-summary {
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 1.5rem 0 1rem 0;
+        }
+        
+        .ingredients-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .ingredient-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-page);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        
+        .ingredient-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .ingredient-link {
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .ingredient-link:hover {
+            background: var(--primary-dark);
+            transform: scale(1.05);
+        }
+        
+        .instructions-list {
+            list-style: none;
+            counter-reset: step-counter;
+        }
+        
+        .instructions-list li {
+            counter-increment: step-counter;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: var(--bg-page);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+            position: relative;
+        }
+        
+        .instructions-list li::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: -1.5rem;
+            top: 1rem;
+            background: var(--primary);
+            color: white;
             border-radius: 50%;
-            border-top-color: #667eea;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.875rem;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        
+        .source-info {
+            background: var(--secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1.5rem;
+            border-left: 3px solid var(--primary);
         }
+        
+        .source-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+        
+        .spinner {
+            width: 2rem;
+            height: 2rem;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
         .loading-text {
-            display: inline-block;
-            animation: pulse 1.5s ease-in-out infinite alternate;
+            color: var(--primary);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
         }
-        @keyframes pulse {
-            from { opacity: 0.6; }
-            to { opacity: 1; }
+        
+        .loading-subtext {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
         }
-        .empty-state { text-align: center; color: #718096; margin: 50px 0; padding: 40px; background: #f8f9fa; border-radius: 15px; }
-        .sample-searches { margin: 20px 0; }
-        .sample-tag { display: inline-block; margin: 5px; padding: 8px 12px; background: #e2e8f0; color: #4a5568; border-radius: 20px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
-        .sample-tag:hover { background: #667eea; color: white; }
+        
+        .disclaimer {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border: 1px solid #f59e0b;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 3rem;
+        }
+        
+        .disclaimer-title {
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 0.5rem;
+        }
+        
+        .disclaimer-text {
+            font-size: 0.875rem;
+            color: #92400e;
+            line-height: 1.5;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+        
+        .status.error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        @media (max-width: 768px) {
+            .title { font-size: 2rem; }
+            .container { padding: 1rem; }
+            .search-section { padding: 1.5rem; }
+            .remedy-card { padding: 1.5rem; }
+            .ingredients-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="wrap">
-        <div class="box">
-            <h1>🌿 Traditional Remedy Search</h1>
-            <p class="subtitle">Discover Natural Healing Wisdom from Ancient Texts</p>
+    <div class="container">
+        <div class="header">
+            <h1 class="title"><span class="title-emoji">🌿</span> Traditional Remedy Search</h1>
+            <p class="subtitle">Discover Natural Healing Wisdom from Barbara O'Neill's Books</p>
             
             <div class="stats" id="stats">
                 📚 Loading remedy database...
             </div>
+        </div>
+        
+        <div class="search-section">
+            <input type="text" class="search-input" id="query" placeholder="Search for conditions like liver cancer, stomach pain, inflammation...">
+            <button class="search-btn" id="search-btn">🔍 Find Natural Remedies</button>
             
-            <div id="search-section">
-                <input type="text" id="query" placeholder="Enter your symptoms or condition (e.g., headache, nausea, sore throat, insomnia)">
-                <button class="btn" id="search-btn">🔍 Find Natural Remedies</button>
-                
-                <div class="sample-searches">
-                    <strong>Try searching for:</strong><br>
-                    <span class="sample-tag" onclick="searchFor('headache')">Headache</span>
-                    <span class="sample-tag" onclick="searchFor('nausea')">Nausea</span>
-                    <span class="sample-tag" onclick="searchFor('sore throat')">Sore Throat</span>
-                    <span class="sample-tag" onclick="searchFor('insomnia')">Insomnia</span>
-                    <span class="sample-tag" onclick="searchFor('inflammation')">Inflammation</span>
-                    <span class="sample-tag" onclick="searchFor('cold')">Cold & Flu</span>
-                </div>
-                
-                <div id="results"></div>
+            <div class="sample-searches">
+                <span class="sample-label">Popular searches:</span>
+                <span class="sample-tag" onclick="searchFor('liver cancer')">Liver Cancer</span>
+                <span class="sample-tag" onclick="searchFor('stomach cancer')">Stomach Cancer</span>
+                <span class="sample-tag" onclick="searchFor('inflammation')">Inflammation</span>
+                <span class="sample-tag" onclick="searchFor('headache')">Headache</span>
+                <span class="sample-tag" onclick="searchFor('arthritis')">Arthritis</span>
+                <span class="sample-tag" onclick="searchFor('diabetes')">Diabetes</span>
             </div>
-            
-            <div class="disclosure">
-                <strong>⚠️ Important Medical Disclaimer:</strong><br>
-                • This information is for educational purposes only and is not intended as medical advice<br>
-                • Always consult qualified healthcare professionals before using any natural remedies<br>
-                • Do not replace conventional medical treatment with these suggestions<br>
-                • As an Amazon Associate, we may earn from qualifying purchases through our links
+        </div>
+        
+        <div id="results"></div>
+        
+        <div class="disclaimer">
+            <div class="disclaimer-title">⚠️ Important Medical Disclaimer</div>
+            <div class="disclaimer-text">
+                This information is for educational purposes only and is not intended as medical advice. 
+                Always consult qualified healthcare professionals before using any natural remedies. 
+                Do not replace conventional medical treatment with these suggestions. 
+                As an Amazon Associate, we may earn from qualifying purchases through our links.
             </div>
         </div>
     </div>
@@ -816,13 +1134,12 @@ class handler(BaseHTTPRequestHandler):
         async function performSearch() {
             if (!query.value.trim()) return;
             
-            // Show enhanced loading indicator
+            // Show modern loading indicator
             results.innerHTML = `
                 <div class="loading">
                     <div class="spinner"></div>
-                    <span class="loading-text">🔍 Analyzing traditional remedy texts...</span>
-                    <br><br>
-                    <small>Extracting herbs and ingredients using AI...</small>
+                    <div class="loading-text">🔍 Analyzing Barbara O'Neill's remedy books...</div>
+                    <div class="loading-subtext">Extracting specific remedies and herbal formulations</div>
                 </div>
             `;
             
@@ -845,33 +1162,31 @@ class handler(BaseHTTPRequestHandler):
                 }
                 
                 results.innerHTML = data.remedies.map(remedy => `
-                    <div class="card">
-                        <h3>${remedy.title}</h3>
-                        ${remedy.summary ? `<p><em>${remedy.summary}</em></p>` : ''}
+                    <div class="remedy-card">
+                        <h2 class="remedy-title">${remedy.title}</h2>
+                        ${remedy.summary ? `<p class="remedy-summary">${remedy.summary}</p>` : ''}
                         
                         ${remedy.ingredients.length > 0 ? `
-                            <h4>🧪 Natural Ingredients</h4>
-                            <ul class="ingredients">
+                            <div class="section-title">🧪 Natural Ingredients</div>
+                            <div class="ingredients-grid">
                                 ${remedy.ingredients.map(ing => `
-                                    <li>
-                                        <strong>${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}</strong>
-                                        <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ing-link">🛒 Find on Amazon</a>
-                                    </li>
+                                    <div class="ingredient-item">
+                                        <span class="ingredient-name">${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}</span>
+                                        <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ingredient-link">🛒 Shop</a>
+                                    </div>
                                 `).join('')}
-                            </ul>
-                        ` : ''}
-                        
-                        ${remedy.instructions && remedy.instructions.length > 0 ? `
-                            <div class="instructions">
-                                <h4>📋 Preparation & Usage</h4>
-                                <ol>
-                                    ${remedy.instructions.map(step => `<li>${step}</li>`).join('')}
-                                </ol>
                             </div>
                         ` : ''}
                         
-                        <div class="source">
-                            📖 Source: ${remedy.source?.book || 'Traditional Text'} - ${remedy.source?.chapter || 'Chapter'} (Section ${remedy.source?.pos || '?'})
+                        ${remedy.instructions && remedy.instructions.length > 0 ? `
+                            <div class="section-title">📋 Preparation & Usage</div>
+                            <ol class="instructions-list">
+                                ${remedy.instructions.map(step => `<li>${step}</li>`).join('')}
+                            </ol>
+                        ` : ''}
+                        
+                        <div class="source-info">
+                            <div class="source-text">📖 Source: ${remedy.source?.book || 'Barbara O\'Neill Book'} - ${remedy.source?.chapter || 'Chapter'} (Section ${remedy.source?.pos || '?'})</div>
                         </div>
                     </div>
                 `).join('');
