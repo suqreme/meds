@@ -722,119 +722,237 @@ class handler(BaseHTTPRequestHandler):
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Traditional Remedy Search - Natural Healing Database</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
         
         :root {
-            --primary: #10b981;
-            --primary-dark: #059669;
-            --secondary: #f3f4f6;
-            --text-primary: #111827;
-            --text-secondary: #6b7280;
-            --border: #e5e7eb;
-            --bg-card: #ffffff;
-            --bg-page: #f9fafb;
-            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --forest-primary: #2d5016;
+            --forest-accent: #4a7c59;
+            --forest-light: #7fb069;
+            --forest-glow: #a3d977;
+            --forest-mist: #c8e6c9;
+            --earth-brown: #8d6e63;
+            --healing-gold: #ffd54f;
+            --pure-white: #ffffff;
+            --soft-shadow: rgba(45, 80, 22, 0.1);
+            --deep-shadow: rgba(45, 80, 22, 0.2);
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.3);
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
-            background: var(--bg-page);
-            color: var(--text-primary);
-            line-height: 1.6;
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1a4c3d 0%, #2d5016 25%, #4a7c59 75%, #7fb069 100%);
+            background-attachment: fixed;
+            color: var(--forest-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(163, 217, 119, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(200, 230, 201, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 40% 60%, rgba(255, 213, 79, 0.2) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .floating-leaves {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .leaf {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: var(--forest-light);
+            border-radius: 0 100% 0 100%;
+            opacity: 0.6;
+            animation: float 15s infinite ease-in-out;
+        }
+        
+        .leaf:nth-child(2) { left: 10%; animation-delay: -2s; animation-duration: 12s; }
+        .leaf:nth-child(3) { left: 20%; animation-delay: -4s; animation-duration: 18s; }
+        .leaf:nth-child(4) { left: 30%; animation-delay: -6s; animation-duration: 14s; }
+        .leaf:nth-child(5) { left: 40%; animation-delay: -8s; animation-duration: 16s; }
+        .leaf:nth-child(6) { left: 60%; animation-delay: -10s; animation-duration: 13s; }
+        .leaf:nth-child(7) { left: 70%; animation-delay: -12s; animation-duration: 17s; }
+        .leaf:nth-child(8) { left: 80%; animation-delay: -14s; animation-duration: 15s; }
+        .leaf:nth-child(9) { left: 90%; animation-delay: -16s; animation-duration: 11s; }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(-100vh) rotate(0deg); opacity: 0; }
+            10%, 90% { opacity: 0.6; }
+            50% { transform: translateY(50vh) rotate(180deg); }
         }
         
         .container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 2rem 1rem;
+            position: relative;
+            z-index: 1;
         }
         
         .header {
             text-align: center;
-            margin-bottom: 3rem;
+            margin-bottom: 4rem;
+            position: relative;
         }
         
         .title {
-            font-size: 3rem;
+            font-family: 'Playfair Display', serif;
+            font-size: 4rem;
             font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.025em;
+            color: var(--pure-white);
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+            text-shadow: 2px 2px 20px var(--deep-shadow);
+            position: relative;
         }
         
         .title-emoji {
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            display: inline-block;
+            font-size: 4.5rem;
+            margin-right: 1rem;
+            filter: drop-shadow(0 0 20px var(--healing-gold));
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px var(--healing-gold)) drop-shadow(0 0 40px var(--forest-glow)); }
+            to { filter: drop-shadow(0 0 30px var(--healing-gold)) drop-shadow(0 0 60px var(--forest-glow)); }
         }
         
         .subtitle {
-            font-size: 1.25rem;
-            color: var(--text-secondary);
+            font-size: 1.4rem;
+            color: var(--forest-mist);
             font-weight: 400;
             margin-bottom: 2rem;
+            text-shadow: 1px 1px 10px var(--soft-shadow);
         }
         
         .stats {
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
-            background: var(--bg-card);
-            padding: 0.75rem 1.5rem;
-            border-radius: 100px;
-            border: 1px solid var(--border);
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            border: 1px solid var(--glass-border);
             font-weight: 500;
-            color: var(--text-secondary);
-            box-shadow: var(--shadow);
+            color: var(--forest-primary);
+            box-shadow: 0 8px 32px var(--soft-shadow);
         }
         
         .search-section {
-            background: var(--bg-card);
-            padding: 2rem;
-            border-radius: 20px;
-            box-shadow: var(--shadow-lg);
-            border: 1px solid var(--border);
-            margin-bottom: 2rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(30px);
+            padding: 3rem;
+            border-radius: 25px;
+            box-shadow: 0 20px 60px var(--deep-shadow);
+            border: 1px solid var(--glass-border);
+            margin-bottom: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .search-section::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--forest-glow) 0%, transparent 70%);
+            opacity: 0.1;
+            animation: shimmer 6s ease-in-out infinite;
+        }
+        
+        @keyframes shimmer {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(180deg); }
         }
         
         .search-input {
             width: 100%;
-            padding: 1rem 1.5rem;
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            font-size: 1.1rem;
-            transition: all 0.2s ease;
-            background: var(--bg-page);
+            padding: 1.5rem 2rem;
+            border: 2px solid var(--glass-border);
+            border-radius: 20px;
+            font-size: 1.2rem;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            color: var(--forest-primary);
+            font-weight: 500;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.1);
         }
         
         .search-input:focus {
             outline: none;
-            border-color: var(--primary);
-            background: white;
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+            border-color: var(--forest-light);
+            background: var(--pure-white);
+            box-shadow: 0 0 0 5px rgba(127, 176, 105, 0.2), inset 0 2px 10px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
         }
         
         .search-btn {
             width: 100%;
-            padding: 1rem 2rem;
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: white;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(135deg, var(--forest-accent) 0%, var(--forest-light) 50%, var(--forest-glow) 100%);
+            color: var(--pure-white);
             border: none;
-            border-radius: 12px;
-            font-size: 1.1rem;
+            border-radius: 20px;
+            font-size: 1.2rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 1rem;
+            transition: all 0.3s ease;
+            margin-top: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            box-shadow: 0 10px 30px var(--soft-shadow);
+        }
+        
+        .search-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        .search-btn:hover::before {
+            left: 100%;
         }
         
         .search-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px var(--deep-shadow);
+        }
+        
+        .search-btn:active {
             transform: translateY(-1px);
-            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
         }
         
         .sample-searches {
@@ -996,33 +1114,73 @@ class handler(BaseHTTPRequestHandler):
         
         .loading {
             text-align: center;
-            padding: 3rem;
-            background: var(--bg-card);
-            border-radius: 16px;
-            border: 1px solid var(--border);
+            padding: 4rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(30px);
+            border-radius: 25px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 20px 60px var(--deep-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .loading::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--healing-gold) 0%, transparent 70%);
+            opacity: 0.1;
+            animation: shimmer 4s ease-in-out infinite;
         }
         
         .spinner {
-            width: 2rem;
-            height: 2rem;
-            border: 3px solid var(--border);
-            border-top: 3px solid var(--primary);
+            width: 3rem;
+            height: 3rem;
+            border: 4px solid rgba(127, 176, 105, 0.3);
+            border-top: 4px solid var(--forest-light);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
+            animation: spin 1.5s linear infinite;
+            margin: 0 auto 2rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .spinner::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 1rem;
+            height: 1rem;
+            background: var(--healing-gold);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            animation: pulse 2s ease-in-out infinite;
         }
         
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.7; }
+        }
         
         .loading-text {
-            color: var(--primary);
+            color: var(--forest-primary);
             font-weight: 600;
-            margin-bottom: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            position: relative;
+            z-index: 1;
         }
         
         .loading-subtext {
-            color: var(--text-secondary);
-            font-size: 0.875rem;
+            color: var(--forest-accent);
+            font-size: 1rem;
+            position: relative;
+            z-index: 1;
         }
         
         .disclaimer {
@@ -1069,13 +1227,25 @@ class handler(BaseHTTPRequestHandler):
     </style>
 </head>
 <body>
+    <div class="floating-leaves">
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+        <div class="leaf"></div>
+    </div>
+    
     <div class="container">
         <div class="header">
-            <h1 class="title"><span class="title-emoji">🌿</span> Traditional Remedy Search</h1>
-            <p class="subtitle">Discover Natural Healing Wisdom from Barbara O'Neill's Books</p>
+            <h1 class="title"><span class="title-emoji">🌿</span> Natural Healing Sanctuary</h1>
+            <p class="subtitle">Ancient Wisdom from Barbara O'Neill's Sacred Remedy Collection</p>
             
             <div class="stats" id="stats">
-                📚 Loading remedy database...
+                📚 Loading sacred remedy database...
             </div>
         </div>
         
@@ -1134,12 +1304,12 @@ class handler(BaseHTTPRequestHandler):
         async function performSearch() {
             if (!query.value.trim()) return;
             
-            // Show modern loading indicator
+            // Show modern forest-themed loading indicator
             results.innerHTML = `
                 <div class="loading">
                     <div class="spinner"></div>
-                    <div class="loading-text">🔍 Analyzing Barbara O'Neill's remedy books...</div>
-                    <div class="loading-subtext">Extracting specific remedies and herbal formulations</div>
+                    <div class="loading-text">🌿 Searching Sacred Remedy Forest...</div>
+                    <div class="loading-subtext">Discovering ancient healing wisdom from Barbara O'Neill's collection</div>
                 </div>
             `;
             
@@ -1196,9 +1366,28 @@ class handler(BaseHTTPRequestHandler):
             }
         }
 
-        searchBtn.addEventListener('click', performSearch);
+        // Add event listeners with debugging
+        searchBtn.addEventListener('click', (e) => {
+            console.log('Search button clicked');
+            e.preventDefault();
+            performSearch();
+        });
+        
         query.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') performSearch();
+            if (e.key === 'Enter') {
+                console.log('Enter key pressed');
+                e.preventDefault();
+                performSearch();
+            }
+        });
+        
+        // Ensure DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, elements:', {
+                query: !!query,
+                searchBtn: !!searchBtn,
+                results: !!results
+            });
         });
     </script>
 </body>
