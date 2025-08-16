@@ -1278,116 +1278,157 @@ class handler(BaseHTTPRequestHandler):
     </div>
 
     <script>
-        const query = document.getElementById('query');
-        const searchBtn = document.getElementById('search-btn');
-        const results = document.getElementById('results');
-        const stats = document.getElementById('stats');
-
-        // Load stats on page load
-        loadStats();
-
-        async function loadStats() {
-            try {
-                const response = await fetch('/api/health');
-                const data = await response.json();
-                stats.innerHTML = `📚 Database contains <strong>${data.chunks_loaded}</strong> remedy sections ready for search`;
-            } catch (error) {
-                stats.innerHTML = '📚 Remedy database loaded and ready';
-            }
-        }
-
-        function searchFor(term) {
-            query.value = term;
-            performSearch();
-        }
-
-        async function performSearch() {
-            if (!query.value.trim()) return;
-            
-            // Show modern forest-themed loading indicator
-            results.innerHTML = `
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <div class="loading-text">🌿 Searching Sacred Remedy Forest...</div>
-                    <div class="loading-subtext">Discovering ancient healing wisdom from Barbara O'Neill's collection</div>
-                </div>
-            `;
-            
-            try {
-                const response = await fetch('/api/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ q: query.value, k: 5 })
-                });
-                const data = await response.json();
-                
-                if (!data.ok) {
-                    results.innerHTML = `<div class="status error">❌ Search error: ${data.error}</div>`;
-                    return;
-                }
-                
-                if (data.remedies.length === 0) {
-                    results.innerHTML = '<div class="empty-state">No remedies found for this search. Try different terms like "pain", "cough", or "digestion".</div>';
-                    return;
-                }
-                
-                results.innerHTML = data.remedies.map(remedy => `
-                    <div class="remedy-card">
-                        <h2 class="remedy-title">${remedy.title}</h2>
-                        ${remedy.summary ? `<p class="remedy-summary">${remedy.summary}</p>` : ''}
-                        
-                        ${remedy.ingredients.length > 0 ? `
-                            <div class="section-title">🧪 Natural Ingredients</div>
-                            <div class="ingredients-grid">
-                                ${remedy.ingredients.map(ing => `
-                                    <div class="ingredient-item">
-                                        <span class="ingredient-name">${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}</span>
-                                        <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ingredient-link">🛒 Shop</a>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-                        
-                        ${remedy.instructions && remedy.instructions.length > 0 ? `
-                            <div class="section-title">📋 Preparation & Usage</div>
-                            <ol class="instructions-list">
-                                ${remedy.instructions.map(step => `<li>${step}</li>`).join('')}
-                            </ol>
-                        ` : ''}
-                        
-                        <div class="source-info">
-                            <div class="source-text">📖 Source: ${remedy.source?.book || 'Barbara O\'Neill Book'} - ${remedy.source?.chapter || 'Chapter'} (Section ${remedy.source?.pos || '?'})</div>
-                        </div>
-                    </div>
-                `).join('');
-                
-            } catch (error) {
-                results.innerHTML = `<div class="status error">❌ Search failed: ${error.message}</div>`;
-            }
-        }
-
-        // Add event listeners with debugging
-        searchBtn.addEventListener('click', (e) => {
-            console.log('Search button clicked');
-            e.preventDefault();
-            performSearch();
-        });
-        
-        query.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                console.log('Enter key pressed');
-                e.preventDefault();
-                performSearch();
-            }
-        });
-        
-        // Ensure DOM is loaded
+        // Wait for DOM to be fully loaded
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, elements:', {
+            console.log('🌿 Forest Sanctuary Script Loading...');
+            
+            const query = document.getElementById('query');
+            const searchBtn = document.getElementById('search-btn');
+            const results = document.getElementById('results');
+            const stats = document.getElementById('stats');
+
+            console.log('🔍 Elements found:', {
                 query: !!query,
                 searchBtn: !!searchBtn,
-                results: !!results
+                results: !!results,
+                stats: !!stats
             });
+
+            // Load stats on page load
+            loadStats();
+
+            async function loadStats() {
+                try {
+                    const response = await fetch('/api/health');
+                    const data = await response.json();
+                    if (stats) {
+                        stats.innerHTML = `📚 Sacred database contains <strong>${data.chunks_loaded}</strong> healing remedies`;
+                    }
+                } catch (error) {
+                    if (stats) {
+                        stats.innerHTML = '📚 Sacred remedy database loaded and ready';
+                    }
+                }
+            }
+
+            function searchFor(term) {
+                if (query) {
+                    query.value = term;
+                    performSearch();
+                }
+            }
+
+            async function performSearch() {
+                console.log('🔍 performSearch called with query:', query?.value);
+                
+                if (!query || !query.value.trim()) {
+                    console.log('❌ No query provided');
+                    return;
+                }
+                
+                if (!results) {
+                    console.log('❌ Results element not found');
+                    return;
+                }
+                
+                // Show modern forest-themed loading indicator
+                results.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div class="loading-text">🌿 Searching Sacred Remedy Forest...</div>
+                        <div class="loading-subtext">Discovering ancient healing wisdom from Barbara O'Neill's collection</div>
+                    </div>
+                `;
+                
+                try {
+                    console.log('🌿 Making API request...');
+                    const response = await fetch('/api/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ q: query.value, k: 5 })
+                    });
+                    
+                    console.log('📡 Response received:', response.status);
+                    const data = await response.json();
+                    console.log('📊 Data:', data);
+                    
+                    if (!data.ok) {
+                        results.innerHTML = `<div class="status error">❌ Search error: ${data.error}</div>`;
+                        return;
+                    }
+                    
+                    if (data.remedies.length === 0) {
+                        results.innerHTML = '<div class="empty-state">No sacred remedies found for this search. Try searching for "liver cancer", "inflammation", or "headache".</div>';
+                        return;
+                    }
+                    
+                    console.log('✅ Found', data.remedies.length, 'remedies');
+                    results.innerHTML = data.remedies.map(remedy => `
+                        <div class="remedy-card">
+                            <h2 class="remedy-title">${remedy.title}</h2>
+                            ${remedy.summary ? `<p class="remedy-summary">${remedy.summary}</p>` : ''}
+                            
+                            ${remedy.ingredients.length > 0 ? `
+                                <div class="section-title">🧪 Sacred Ingredients</div>
+                                <div class="ingredients-grid">
+                                    ${remedy.ingredients.map(ing => `
+                                        <div class="ingredient-item">
+                                            <span class="ingredient-name">${[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}</span>
+                                            <a href="${ing.link}" target="_blank" rel="nofollow sponsored noopener" class="ingredient-link">🛒 Find</a>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                            
+                            ${remedy.instructions && remedy.instructions.length > 0 ? `
+                                <div class="section-title">📋 Sacred Preparation</div>
+                                <ol class="instructions-list">
+                                    ${remedy.instructions.map(step => `<li>${step}</li>`).join('')}
+                                </ol>
+                            ` : ''}
+                            
+                            <div class="source-info">
+                                <div class="source-text">📖 Source: ${remedy.source?.book || 'Barbara O\'Neill Sacred Collection'} - ${remedy.source?.chapter || 'Chapter'} (Section ${remedy.source?.pos || '?'})</div>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                } catch (error) {
+                    console.error('🚨 Search error:', error);
+                    results.innerHTML = `<div class="status error">❌ Sacred forest search failed: ${error.message}</div>`;
+                }
+            }
+
+            // Add event listeners with robust error handling
+            if (searchBtn) {
+                searchBtn.addEventListener('click', (e) => {
+                    console.log('🔍 Search button clicked!');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    performSearch();
+                });
+                console.log('✅ Search button listener attached');
+            } else {
+                console.error('❌ Search button not found!');
+            }
+            
+            if (query) {
+                query.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        console.log('⌨️ Enter key pressed!');
+                        e.preventDefault();
+                        performSearch();
+                    }
+                });
+                console.log('✅ Query input listener attached');
+            } else {
+                console.error('❌ Query input not found!');
+            }
+            
+            // Make searchFor globally available
+            window.searchFor = searchFor;
+            
+            console.log('🌿 Forest Sanctuary fully initialized!');
         });
     </script>
 </body>
