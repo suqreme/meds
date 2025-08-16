@@ -386,24 +386,24 @@ def ai_format_remedy_text(text: str) -> List[str]:
             else:
                 raise te
         
-        prompt = f"""You are an expert herbalist. Convert this traditional remedy text into PRACTICAL, actionable instructions that people can actually follow. Focus on HOW TO USE the ingredients with specific amounts, preparation methods, and timing.
+        prompt = f"""You are an expert herbalist. Convert this traditional remedy text into PRACTICAL, actionable instructions. Return ONLY a simple JSON array of strings (not objects).
 
-Transform the text into clear steps that include:
-1. SPECIFIC DOSAGES (how much of each ingredient)
-2. PREPARATION METHODS (how to make teas, tinctures, etc.)
-3. TIMING (when to take, how often)
-4. DURATION (how long to continue treatment)
-5. PRACTICAL APPLICATION (exactly what to do)
+Each string should be a complete, practical instruction including:
+- Specific dosages and amounts
+- Clear preparation methods  
+- When and how often to use
+- Practical steps anyone can follow
 
-Examples of good instructions:
-- "Prepare Red Clover tea: Steep 1-2 teaspoons dried red clover in 1 cup boiling water for 10-15 minutes. Drink 2-3 cups daily."
-- "Make Burdock root decoction: Simmer 1 tablespoon dried burdock root in 2 cups water for 20 minutes. Strain and drink 1/2 cup twice daily."
-- "Turmeric paste: Mix 1 teaspoon turmeric powder with 1/4 teaspoon black pepper and 1 tablespoon coconut oil. Take this mixture twice daily with meals."
+Good examples:
+"Prepare Red Clover tea: Steep 1-2 teaspoons dried red clover in 1 cup boiling water for 10-15 minutes. Drink 2-3 cups daily."
+"Make Burdock root decoction: Simmer 1 tablespoon dried burdock root in 2 cups water for 20 minutes. Strain and drink 1/2 cup twice daily."  
+"Turmeric paste: Mix 1 teaspoon turmeric powder with 1/4 teaspoon black pepper and 1 tablespoon coconut oil. Take twice daily with meals."
 
 Text to convert:
-{text[:2000]}
+{text[:1800]}
 
-Return ONLY a JSON array of practical step-by-step instructions with specific dosages and methods:"""
+Return ONLY a JSON array of strings (NOT objects):
+["instruction 1", "instruction 2", "instruction 3"]"""
 
         # Handle both new and old OpenAI client APIs
         model_name = "gpt-3.5-turbo"
@@ -435,8 +435,24 @@ Return ONLY a JSON array of practical step-by-step instructions with specific do
                 string_steps = []
                 for step in parsed_steps[:8]:
                     if isinstance(step, dict):
-                        # If it's an object, convert to string representation
-                        string_steps.append(str(step.get('text', step.get('instruction', str(step)))))
+                        # Extract the main instruction text from structured object
+                        if 'step' in step:
+                            # Format: "Step text (Dosage: X, Timing: Y)"
+                            main_step = step['step']
+                            extras = []
+                            if step.get('dosage') and step['dosage'] != 'As per individual preference':
+                                extras.append(f"Dosage: {step['dosage']}")
+                            if step.get('timing') and step['timing'] not in ['Throughout the day', 'As needed']:
+                                extras.append(f"Timing: {step['timing']}")
+                            
+                            if extras:
+                                string_steps.append(f"{main_step} ({', '.join(extras)})")
+                            else:
+                                string_steps.append(main_step)
+                        else:
+                            # Fallback to any text fields
+                            text = step.get('text', step.get('instruction', str(step)))
+                            string_steps.append(str(text))
                     elif isinstance(step, str):
                         string_steps.append(step)
                     else:
@@ -626,6 +642,15 @@ def simple_text_search(query: str, max_results: int = 5) -> List[Dict]:
                 score += 3
             if any(kw in text_lower for kw in remedy_keywords):
                 score += 5
+            
+            # PRIORITIZE Barbara O'Neill books (1.epub, 2.epub) over general content
+            book_name = chunk.get("book", "").lower()
+            if any(priority_book in book_name for priority_book in ["1.epub", "2.epub"]):
+                score += 20  # Significant boost for Barbara O'Neill content
+                print(f"📚 Boosting Barbara O'Neill book: {book_name}")
+            elif "test-book" in book_name:
+                score = max(0, score - 10)  # Reduce score for test content
+                print(f"📚 Reducing test book score: {book_name}")
         
         if score > 0:
             results.append({
